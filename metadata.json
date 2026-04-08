@@ -1,0 +1,5 @@
+{
+  "name": "Estoque Zap",
+  "description": "Inventory management app with WhatsApp sharing",
+  "requestFramePermissions": []
+}

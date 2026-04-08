@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application, either an admin or a store employee.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "store"],
+          "description": "The user's role."
+        },
+        "storeId": {
+          "type": "string",
+          "description": "The ID of the store the user is assigned to (if role is 'store')."
+        }
+      },
+      "required": ["email", "role"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "A store that has its own inventory.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the store."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the store was created."
+        }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "Item": {
+      "title": "Item",
+      "description": "An inventory item in a specific store.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the item."
+        },
+        "quantity": {
+          "type": "number",
+          "description": "The current quantity in stock."
+        },
+        "price": {
+          "type": "number",
+          "description": "The price per unit."
+        },
+        "waste": {
+          "type": "number",
+          "description": "The amount of waste/loss."
+        }
+      },
+      "required": ["name", "quantity", "price", "waste"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles and roles."
+    },
+    "/stores/{storeId}": {
+      "schema": {
+        "$ref": "#/entities/Store"
+      },
+      "description": "Stores the list of stores."
+    },
+    "/stores/{storeId}/items/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/Item"
+      },
+      "description": "Stores the inventory items for a specific store."
+    }
+  }
+}

@@ -1,0 +1,145 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (from Firebase Auth)
+    // Fields:
+    //   - email: string (required)
+    //   - role: string (required, 'admin' or 'store')
+    //   - storeId: string (optional, ID of the store if role is 'store')
+    //
+    // Collection: stores
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - createdAt: string (required, ISO 8601 date string)
+    //
+    // Collection: stores/{storeId}/items
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required)
+    //   - quantity: number (required)
+    //   - price: number (required)
+    //   - waste: number (required)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+        (request.auth.token.email == 'mariabonitaacai8@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isStoreUser(storeId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.storeId == storeId;
+    }
+
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+
+    function hasRequiredFields(requiredFields) {
+      return request.resource.data.keys().hasAll(requiredFields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser() {
+      let data = request.resource.data;
+      return hasRequiredFields(['email', 'role']) &&
+             hasOnlyAllowedFields(['email', 'role', 'storeId']) &&
+             isValidEmail(data.email) &&
+             (data.role == 'admin' || data.role == 'store') &&
+             (!('storeId' in data) || (data.storeId is string && data.storeId.size() > 0 && data.storeId.size() < 100));
+    }
+
+    function isValidStore() {
+      let data = request.resource.data;
+      return hasRequiredFields(['name', 'createdAt']) &&
+             hasOnlyAllowedFields(['name', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidItem() {
+      let data = request.resource.data;
+      return hasRequiredFields(['name', 'quantity', 'price', 'waste']) &&
+             hasOnlyAllowedFields(['name', 'quantity', 'price', 'waste']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.price is number && data.price >= 0 &&
+             data.waste is number && data.waste >= 0;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own profile, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // A user can create their own profile. If they are the default admin, they can set role to 'admin'.
+      // Otherwise, they can only set role to 'store' and cannot assign themselves a storeId.
+      // Admins can create any user profile.
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser() && (
+        isAdmin() || (request.resource.data.role == 'store' && !('storeId' in request.resource.data))
+      );
+
+      // Only admins can update user profiles (e.g. to assign a storeId or change role)
+      allow update: if isAdmin() && isValidUser();
+      
+      allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId} {
+      // Admins can read all stores. Store users can read their assigned store.
+      allow read: if isAdmin() || isStoreUser(storeId);
+      
+      // Only admins can create/update/delete stores
+      allow create: if isAdmin() && isValidStore();
+      allow update: if isAdmin() && isValidStore();
+      allow delete: if isAdmin();
+
+      match /items/{itemId} {
+        // Admins and assigned store users can read/write items
+        allow read: if isAdmin() || isStoreUser(storeId);
+        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidItem();
+        allow update: if (isAdmin() || isStoreUser(storeId)) && isValidItem();
+        allow delete: if isAdmin() || isStoreUser(storeId);
+      }
+    }
+  }
+}
