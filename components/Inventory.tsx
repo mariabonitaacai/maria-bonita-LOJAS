@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit2, Check, X, Search, RefreshCw, LogOut, ArrowLeft } from 'lucide-react';
+import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit2, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../firebase';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
   const [items, setItems] = useState<any[]>([]);
-  const [formData, setFormData] = useState({ name: '', quantity: 0, price: '' });
+  const [formData, setFormData] = useState({ name: '', quantity: 0, price: '', dailyConsumption: '' });
   const [notification, setNotification] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState({ name: '', price: '' });
+  const [editFormData, setEditFormData] = useState({ name: '', price: '', dailyConsumption: '' });
+  
+  // Order Generator State
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [orderDays, setOrderDays] = useState(7);
+  const [orderItems, setOrderItems] = useState<any[]>([]);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -48,9 +53,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
         name: formData.name,
         quantity: Number(formData.quantity) || 0,
         waste: 0,
-        price: Number(formData.price.replace(',', '.')) || 0
+        price: Number(formData.price.replace(',', '.')) || 0,
+        dailyConsumption: Number(formData.dailyConsumption) || 0
       });
-      setFormData({ name: '', quantity: 0, price: '' });
+      setFormData({ name: '', quantity: 0, price: '', dailyConsumption: '' });
       setSearchTerm('');
       showNotification('Artigo adicionado com sucesso!');
     } catch (error) {
@@ -92,7 +98,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   const startEditing = (item: any) => {
     setEditingId(item.id);
-    setEditFormData({ name: item.name, price: item.price });
+    setEditFormData({ name: item.name, price: item.price, dailyConsumption: item.dailyConsumption || '' });
   };
 
   const saveEditing = async (id: string) => {
@@ -103,7 +109,8 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     try {
       await updateDoc(doc(db, `stores/${storeId}/items`, id), {
         name: editFormData.name,
-        price: Number(String(editFormData.price).replace(',', '.')) || 0
+        price: Number(String(editFormData.price).replace(',', '.')) || 0,
+        dailyConsumption: Number(editFormData.dailyConsumption) || 0
       });
       setEditingId(null);
       showNotification('Artigo atualizado com sucesso!');
@@ -129,6 +136,56 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   };
+
+  // --- Order Generator Logic ---
+  const openOrderModal = () => {
+    calculateOrder(7);
+    setIsOrderModalOpen(true);
+  };
+
+  const calculateOrder = (days: number) => {
+    setOrderDays(days);
+    const newOrderItems = items.map(item => {
+      const consumption = Number(item.dailyConsumption) || 0;
+      const needed = consumption * days;
+      const suggested = Math.max(0, Math.ceil(needed - (Number(item.quantity) || 0)));
+      return {
+        id: item.id,
+        name: item.name,
+        suggested: suggested,
+        adjusted: suggested
+      };
+    }).filter(item => item.suggested > 0 || (Number(item.dailyConsumption) || 0) > 0);
+    setOrderItems(newOrderItems);
+  };
+
+  const handleAdjustOrder = (id: string, change: number) => {
+    setOrderItems(prev => prev.map(o => {
+      if (o.id === id) {
+        return { ...o, adjusted: Math.max(0, o.adjusted + change) };
+      }
+      return o;
+    }));
+  };
+
+  const sendOrderViaWhatsApp = () => {
+    const itemsToOrder = orderItems.filter(o => o.adjusted > 0);
+    if (itemsToOrder.length === 0) {
+      showNotification("Nenhum item para pedir.");
+      return;
+    }
+    
+    let message = `🛒 *PEDIDO DE COMPRA - ${storeName.toUpperCase()}* 🛒\n`;
+    message += `📅 Previsão para: ${orderDays} dias\n\n`;
+    
+    itemsToOrder.forEach(item => {
+      message += `✅ ${item.adjusted}x - ${item.name}\n`;
+    });
+    
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+  };
+  // -----------------------------
 
   const shareViaWhatsApp = () => {
     const hasActiveItems = items.some((item: any) => (Number(item.quantity) || 0) > 0 || (Number(item.waste) || 0) > 0);
@@ -216,6 +273,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 <input type="number" step="0.01" name="quantity" value={formData.quantity} onChange={handleInputChange} min="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
               </div>
               <div className="w-full md:w-32">
+                <label className="block text-sm font-medium text-gray-600 mb-1" title="Consumo Médio Diário">Consumo/Dia</label>
+                <input type="number" name="dailyConsumption" value={formData.dailyConsumption} onChange={handleInputChange} step="0.01" min="0" placeholder="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
+              </div>
+              <div className="w-full md:w-32">
                 <label className="block text-sm font-medium text-gray-600 mb-1">Preço (R$)</label>
                 <input type="number" name="price" value={formData.price} onChange={handleInputChange} step="0.01" min="0" placeholder="0.00" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
               </div>
@@ -246,6 +307,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
           <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 className="font-semibold text-gray-700 whitespace-nowrap">Artigos no Inventário ({filteredItems.length})</h2>
             <div className="flex w-full sm:w-auto items-center gap-2">
+              <button onClick={openOrderModal} className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium whitespace-nowrap">
+                <ShoppingCart size={16} />
+                <span className="hidden sm:inline">Gerar Pedido</span>
+              </button>
               <div className="relative flex-1 sm:w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input type="text" placeholder="Buscar artigo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all text-sm" />
@@ -274,6 +339,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                             <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
                           </div>
                           <div className="w-full sm:w-24">
+                            <label className="text-xs text-gray-500">Consumo/Dia</label>
+                            <input type="number" step="0.01" value={editFormData.dailyConsumption} onChange={(e) => setEditFormData({...editFormData, dailyConsumption: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                          </div>
+                          <div className="w-full sm:w-24">
                             <label className="text-xs text-gray-500">Preço</label>
                             <input type="number" step="0.01" value={editFormData.price} onChange={(e) => setEditFormData({...editFormData, price: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
                           </div>
@@ -286,7 +355,15 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                         <>
                           <div className="flex-1">
                             <h3 className="font-medium text-gray-800 text-base">{item.name}</h3>
-                            <p className="text-xs text-gray-500">{formatCurrency(item.price)} / un</p>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <span>{formatCurrency(item.price)} / un</span>
+                              {item.dailyConsumption > 0 && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Gasto: {item.dailyConsumption}/dia</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between gap-3">
@@ -336,6 +413,69 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setIsResetModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
                 <button onClick={confirmReset} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">Sim, Zerar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isOrderModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3 text-blue-600">
+                  <ShoppingCart size={28} />
+                  <h3 className="text-xl font-bold text-gray-800">Gerador de Pedidos</h3>
+                </div>
+                <button onClick={() => setIsOrderModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <div className="flex items-center gap-4 mb-6 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                <label className="font-medium text-blue-800">Previsão para quantos dias?</label>
+                <div className="flex items-center bg-white rounded-lg border border-blue-200 overflow-hidden">
+                  <button onClick={() => calculateOrder(Math.max(1, orderDays - 1))} className="px-3 py-2 text-blue-600 hover:bg-blue-50 transition-colors"><MinusCircle size={18} /></button>
+                  <input type="number" value={orderDays} onChange={(e) => calculateOrder(Number(e.target.value))} className="w-16 text-center font-bold text-blue-800 focus:outline-none" />
+                  <button onClick={() => calculateOrder(orderDays + 1)} className="px-3 py-2 text-blue-600 hover:bg-blue-50 transition-colors"><PlusCircle size={18} /></button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 mb-6">
+                {orderItems.length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <Package size={48} className="mx-auto mb-3 opacity-20" />
+                    <p>Nenhum item configurado com &quot;Consumo Diário&quot;.</p>
+                    <p className="text-sm mt-2">Edite seus produtos e adicione o consumo médio diário para gerar pedidos automaticamente.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {orderItems.map(item => (
+                      <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${item.adjusted > 0 ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">{item.name}</p>
+                          <p className="text-xs text-gray-500">Sugestão do sistema: {item.suggested}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => handleAdjustOrder(item.id, -1)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><MinusCircle size={20} /></button>
+                          <span className={`w-8 text-center font-bold text-lg ${item.adjusted > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{item.adjusted}</span>
+                          <button onClick={() => handleAdjustOrder(item.id, 1)} className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-lg transition-colors"><PlusCircle size={20} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-gray-100">
+                <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-xl transition-colors">
+                  Cancelar
+                </button>
+                <button onClick={sendOrderViaWhatsApp} disabled={orderItems.filter(o => o.adjusted > 0).length === 0} className="flex-1 py-3 px-4 bg-[#25D366] hover:bg-[#128C7E] disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                  <Send size={18} />
+                  Enviar Pedido
+                </button>
               </div>
             </motion.div>
           </div>

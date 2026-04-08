@@ -96,11 +96,12 @@ service cloud.firestore {
     function isValidItem() {
       let data = request.resource.data;
       return hasRequiredFields(['name', 'quantity', 'price', 'waste']) &&
-             hasOnlyAllowedFields(['name', 'quantity', 'price', 'waste']) &&
+             hasOnlyAllowedFields(['name', 'quantity', 'price', 'waste', 'dailyConsumption']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.quantity is number && data.quantity >= 0 &&
              data.price is number && data.price >= 0 &&
-             data.waste is number && data.waste >= 0;
+             data.waste is number && data.waste >= 0 &&
+             (!('dailyConsumption' in data) || (data.dailyConsumption is number && data.dailyConsumption >= 0));
     }
 
     // ===============================================================

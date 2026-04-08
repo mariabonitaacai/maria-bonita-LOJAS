@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck } from 'lucide-react';
+import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function AdminDashboard({ onSelectStore }: { onSelectStore: (storeId: string, storeName: string) => void }) {
@@ -10,6 +10,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const [newStoreName, setNewStoreName] = useState('');
   const [activeTab, setActiveTab] = useState<'stores' | 'users'>('stores');
   const [notification, setNotification] = useState<string | null>(null);
+  const [storeToDelete, setStoreToDelete] = useState<{id: string, name: string} | null>(null);
 
   useEffect(() => {
     const unsubscribeStores = onSnapshot(collection(db, 'stores'), (snapshot) => {
@@ -43,6 +44,35 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       showNotification('Loja criada com sucesso!');
     } catch (error) {
       console.error("Error adding store:", error);
+    }
+  };
+
+  const handleDeleteStore = async () => {
+    if (!storeToDelete) return;
+    
+    try {
+      // 1. Delete all items in the store
+      const itemsSnapshot = await getDocs(collection(db, `stores/${storeToDelete.id}/items`));
+      const deletePromises = itemsSnapshot.docs.map(itemDoc => 
+        deleteDoc(doc(db, `stores/${storeToDelete.id}/items`, itemDoc.id))
+      );
+      await Promise.all(deletePromises);
+
+      // 2. Unlink users associated with this store
+      const usersToUpdate = users.filter(u => u.storeId === storeToDelete.id);
+      const userUpdatePromises = usersToUpdate.map(user => 
+        updateDoc(doc(db, 'users', user.id), { storeId: null })
+      );
+      await Promise.all(userUpdatePromises);
+
+      // 3. Delete the store itself
+      await deleteDoc(doc(db, 'stores', storeToDelete.id));
+      
+      showNotification(`Loja "${storeToDelete.name}" excluída com sucesso!`);
+      setStoreToDelete(null);
+    } catch (error) {
+      console.error("Error deleting store:", error);
+      showNotification('Erro ao excluir a loja.');
     }
   };
 
@@ -134,10 +164,12 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 {stores.map(store => (
                   <div 
                     key={store.id} 
-                    onClick={() => onSelectStore(store.id, store.name)}
-                    className="p-4 flex items-center justify-between hover:bg-gray-50 cursor-pointer transition-colors"
+                    className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
+                    <div 
+                      className="flex items-center gap-3 cursor-pointer flex-1"
+                      onClick={() => onSelectStore(store.id, store.name)}
+                    >
                       <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
                         <Store size={20} />
                       </div>
@@ -146,9 +178,21 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         <p className="text-xs text-gray-400">ID: {store.id}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 text-blue-600 font-medium text-sm">
-                      Ver Estoque
-                      <ChevronRight size={18} />
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => onSelectStore(store.id, store.name)}
+                        className="flex items-center gap-1 text-blue-600 font-medium text-sm hover:underline"
+                      >
+                        Ver Estoque
+                        <ChevronRight size={18} />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setStoreToDelete({id: store.id, name: store.name}); }}
+                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Excluir Loja"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -217,6 +261,43 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
           </section>
         )}
       </main>
+
+      {/* Modal de Confirmação de Exclusão */}
+      <AnimatePresence>
+        {storeToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+            >
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertTriangle size={28} />
+                <h3 className="text-xl font-bold">Excluir Loja?</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Tem certeza que deseja excluir a loja <strong>&quot;{storeToDelete.name}&quot;</strong>? 
+                Esta ação apagará <strong>todo o estoque</strong> desta loja e removerá o acesso dos colaboradores vinculados a ela. Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setStoreToDelete(null)}
+                  className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleDeleteStore}
+                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Sim, Excluir
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {notification && (
