@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -36,12 +36,84 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     e.preventDefault();
     if (!newStoreName.trim()) return;
     try {
-      await addDoc(collection(db, 'stores'), {
+      const storeRef = await addDoc(collection(db, 'stores'), {
         name: newStoreName,
         createdAt: new Date().toISOString()
       });
+
+      const batch = writeBatch(db);
+      const standardItems = [
+        { name: 'Amendoim Triturado', price: 0 },
+        { name: 'Bala Docile 1kg Amora', price: 34.5 },
+        { name: 'Bala Docile 1kg Bananinha', price: 34.5 },
+        { name: 'Bala Docile 1kg Beijinho', price: 34.5 },
+        { name: 'Bala Docile 1kg Dentadura', price: 34.5 },
+        { name: 'Bala Docile 1kg Minhocas Cítricas', price: 34.5 },
+        { name: 'Bandeira de morango', price: 7.25 },
+        { name: 'Base M500 ml com 50 un', price: 9.5 },
+        { name: 'CAIXAS DE AÇAÍ FIT ULTRA', price: 85 },
+        { name: 'Caixas de Açaí Premium de 4kg', price: 75 },
+        { name: 'Canudos waffle 1kg', price: 27.6 },
+        { name: 'Cascão de Sorverte com', price: 0 },
+        { name: 'Castanha Caramelizada 1kg', price: 0 },
+        { name: 'Castanhas em Bandas 1kg', price: 44.99 },
+        { name: 'Cereja Cerelis Alispec 4,5 Kg', price: 92.99 },
+        { name: 'Cestinha de Sorverte', price: 0 },
+        { name: 'Chocoball Dona Jura 500 kg', price: 16.5 },
+        { name: 'Chococandy Dori 500g', price: 12.49 },
+        { name: 'ChocoCookies Ao Leite Food Base 4kg', price: 126.49 },
+        { name: 'ChocoCookies Branco Food Base 4Kg', price: 122.42 },
+        { name: 'Chocopower Dona Jura 500 kg', price: 0 },
+        { name: 'Cobertura de chocolate 1kg', price: 28.99 },
+        { name: 'Cobertura de morango 1kg', price: 28.99 },
+        { name: 'Cobertura fine bananinha 1kg', price: 28.99 },
+        { name: 'Cobertura fine beijo 1kg', price: 28.99 },
+        { name: 'Cobertura fine Dentadura 1kg', price: 28.99 },
+        { name: 'Colher Reforçada Real Açaí Lilás', price: 34.99 },
+        { name: 'Composto Lácteo Piracanjuba Ótimo 1kg', price: 30.49 },
+        { name: 'Cookies Branco Doremus 4kg', price: 127.49 },
+        { name: 'Copos de 400 ml Cristal', price: 7.49 },
+        { name: 'Creme de Amendoim specialita 1kg', price: 0 },
+        { name: 'Creme de Dorella Doremus 4 Kg', price: 161.49 },
+        { name: 'Creme de Leite Culinário 200g', price: 2 },
+        { name: 'Creme de Pipoca Specialita3,5', price: 0 },
+        { name: 'Creme De Pistache Doremus 4kg', price: 0 },
+        { name: 'Detergente para louça', price: 1.5 },
+        { name: 'Emulsificante de 1kg', price: 21.99 },
+        { name: 'Gotas de Chocolate 1kg (Marcas variadas)', price: 0 },
+        { name: 'Granola Sabor Da Terra 1kg', price: 14 },
+        { name: 'Jujuba docile de 1kg', price: 13 },
+        { name: 'Kiwi frita kg', price: 23 },
+        { name: 'Leite Condensado Mistura L 395g', price: 4 },
+        { name: 'Leite em pó Piracanjuba ótimo 2kg', price: 31.3 },
+        { name: 'Marshmallow Docile 0,220 g', price: 0 },
+        { name: 'Ovomaltine Em Pasta 900g', price: 37.5 },
+        { name: 'Ovomaltine Em pó 750kg', price: 37.5 },
+        { name: 'Paçoquita', price: 11.66 },
+        { name: 'Potes Personalizados de 500ml', price: 0.89 },
+        { name: 'Preparo de Abacaxi Ao Vinho 4kg', price: 99 },
+        { name: 'Preparo de maracujá 1kg', price: 99 },
+        { name: 'Preparo de maracujá 4kg', price: 99 },
+        { name: 'Preparo de morango 4kg', price: 99 },
+        { name: 'Sucrilhos de 1kg', price: 22.49 },
+        { name: 'Tampa da base M500 ml com 50 un', price: 9.5 }
+      ];
+
+      standardItems.forEach(item => {
+        const itemRef = doc(collection(db, `stores/${storeRef.id}/items`));
+        batch.set(itemRef, {
+          name: item.name,
+          quantity: 0,
+          price: item.price,
+          waste: 0,
+          dailyConsumption: 0
+        });
+      });
+
+      await batch.commit();
+
       setNewStoreName('');
-      showNotification('Loja criada com sucesso!');
+      showNotification('Loja criada com sucesso (com estoque padrão)!');
     } catch (error) {
       console.error("Error adding store:", error);
     }
