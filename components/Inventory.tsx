@@ -153,9 +153,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
         id: item.id,
         name: item.name,
         suggested: suggested,
-        adjusted: suggested
+        adjusted: suggested,
+        dailyConsumption: consumption
       };
-    }).filter(item => item.suggested > 0 || (Number(item.dailyConsumption) || 0) > 0);
+    }).filter(item => item.suggested > 0 || item.dailyConsumption > 0);
     setOrderItems(newOrderItems);
   };
 
