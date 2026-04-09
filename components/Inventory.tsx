@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit2, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send } from 'lucide-react';
+import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../firebase';
 
@@ -18,6 +18,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderDays, setOrderDays] = useState(7);
   const [orderItems, setOrderItems] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'inventory' | 'analysis'>('inventory');
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -74,23 +75,47 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     }
   };
 
-  const adjustValue = async (id: string, field: string, change: number, currentValue: number) => {
-    const newValue = Math.max(0, currentValue + change);
+  const calculateTrackingUpdates = (item: any, field: string, newValue: number) => {
+    const updates: any = { [field]: Number(newValue.toFixed(2)) };
+    
+    if (field === 'quantity') {
+      const today = new Date().toISOString().split('T')[0];
+      
+      if (item.lastCountDate !== today) {
+        if (item.lastCountDate) {
+          const diff = (item.lastCountQuantity || 0) - newValue;
+          if (diff > 0) {
+            const currentAvg = item.autoDailyConsumption || 0;
+            const days = item.daysTracked || 0;
+            const newAvg = ((currentAvg * days) + diff) / (days + 1);
+            updates.autoDailyConsumption = Number(newAvg.toFixed(2));
+            updates.daysTracked = days + 1;
+          }
+        }
+        updates.lastCountDate = today;
+        updates.lastCountQuantity = newValue;
+      } else {
+        updates.lastCountQuantity = newValue;
+      }
+    }
+    return updates;
+  };
+
+  const adjustValue = async (item: any, field: string, change: number) => {
+    const newValue = Math.max(0, (item[field] || 0) + change);
     try {
-      await updateDoc(doc(db, `stores/${storeId}/items`, id), {
-        [field]: Number(newValue.toFixed(2))
-      });
+      const updates = calculateTrackingUpdates(item, field, newValue);
+      await updateDoc(doc(db, `stores/${storeId}/items`, item.id), updates);
     } catch (error) {
       console.error("Error updating value:", error);
     }
   };
 
-  const handleDirectInput = async (id: string, field: string, value: string) => {
+  const handleDirectInput = async (item: any, field: string, value: string) => {
     if (value === '') return;
     try {
-      await updateDoc(doc(db, `stores/${storeId}/items`, id), {
-        [field]: Number(value)
-      });
+      const updates = calculateTrackingUpdates(item, field, Number(value));
+      await updateDoc(doc(db, `stores/${storeId}/items`, item.id), updates);
     } catch (error) {
       console.error("Error updating value:", error);
     }
@@ -146,7 +171,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const calculateOrder = (days: number) => {
     setOrderDays(days);
     const newOrderItems = items.map(item => {
-      const consumption = Number(item.dailyConsumption) || 0;
+      const manualConsumption = Number(item.dailyConsumption) || 0;
+      const autoConsumption = Number(item.autoDailyConsumption) || 0;
+      const consumption = manualConsumption > 0 ? manualConsumption : autoConsumption;
+      
       const needed = consumption * days;
       const suggested = Math.max(0, Math.ceil(needed - (Number(item.quantity) || 0)));
       return {
@@ -154,7 +182,8 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
         name: item.name,
         suggested: suggested,
         adjusted: suggested,
-        dailyConsumption: consumption
+        dailyConsumption: consumption,
+        isAuto: manualConsumption === 0 && autoConsumption > 0
       };
     }).filter(item => item.suggested > 0 || item.dailyConsumption > 0);
     setOrderItems(newOrderItems);
@@ -238,164 +267,262 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const totalWasteValue = items.reduce((acc: number, item: any) => acc + ((Number(item.waste) || 0) * Number(item.price)), 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans pb-20 md:pb-10">
-      <header className="bg-blue-600 text-white p-6 shadow-md rounded-b-2xl mb-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-background text-on-surface font-body pb-20 md:pb-10">
+      <header className="sticky top-0 z-50 flex justify-between items-center px-4 md:px-8 h-20 w-full max-w-screen-2xl mx-auto bg-background border-b border-opacity-15 border-slate-400">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center">
             {onBack && (
-              <button onClick={onBack} className="mr-2 hover:bg-blue-700 p-2 rounded-full transition-colors">
+              <button onClick={onBack} className="mr-4 text-on-surface-variant hover:text-primary transition-colors">
                 <ArrowLeft size={24} />
               </button>
             )}
-            <Package size={32} />
-            <h1 className="text-2xl font-bold">Estoque Zap - {storeName}</h1>
+            <img alt="Maria Bonita Açaíteria Logo" className="h-12 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ADBb0ugahC1qQy_pxsF4PbcE4DJXxxMGVV8PKznIL5Ruw0I-qbwo-A8IGWq7jYcAFB0tRIKaG5d8A0lcGHXaGpRa1MsxjE_TwIIh4VSViRBmxtn_4JHiVp2lyhJRmbE79N6KcqU7XRvsHIeSHmwQWGnDLGO-7J052QwUBudgkZ0UzwR5GHCSZUYtz0tTTr0FQWB-_nrdqCTqVqA-OYS54GfwFRLiAHJrgUTeoZ0WqpZ9kSED-OgVbu3HAfrH6D6J1uRaq1nYoNlVD95XMEk"/>
           </div>
-          <button onClick={() => auth.signOut()} className="flex items-center gap-2 hover:bg-blue-700 p-2 rounded-lg transition-colors">
-            <LogOut size={20} />
-            <span className="hidden sm:inline">Sair</span>
-          </button>
+          <nav className="hidden md:flex gap-6 items-center">
+            <button onClick={() => setActiveTab('inventory')} className={`font-headline font-bold text-sm tracking-tight pb-1 transition-transform active:scale-95 ${activeTab === 'inventory' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-primary'}`}>Inventário</button>
+            <button onClick={() => setActiveTab('analysis')} className={`font-headline font-bold text-sm tracking-tight pb-1 transition-transform active:scale-95 ${activeTab === 'analysis' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-primary'}`}>Análise Inteligente</button>
+          </nav>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="relative hidden sm:block">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-surface-container-high border-none rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-primary w-64 outline-none" placeholder="Buscar no estoque..." type="text"/>
+          </div>
+          <div className="flex items-center gap-4">
+            <button className="text-on-surface-variant hover:text-primary transition-colors"><Bell size={20} /></button>
+            <button onClick={() => auth.signOut()} title="Sair" className="text-on-surface-variant hover:text-primary transition-colors"><LogOut size={20} /></button>
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-surface-container-highest flex items-center justify-center text-primary font-bold">
+              {auth.currentUser?.email?.[0].toUpperCase() || 'U'}
+            </div>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 flex flex-col gap-6">
-        <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <PlusCircle size={20} className="text-blue-500" />
-            Novo Artigo
-          </h2>
-          <form onSubmit={addItem} className="flex flex-col md:flex-row gap-4 md:items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-600 mb-1">Nome do Produto</label>
-              <input type="text" name="name" value={formData.name} onChange={handleInputChange} placeholder="Ex: Embalagem 500ml" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
-            </div>
-            <div className="flex gap-4">
-              <div className="w-full md:w-28">
-                <label className="block text-sm font-medium text-gray-600 mb-1">Qtd inicial</label>
-                <input type="number" step="0.01" name="quantity" value={formData.quantity} onChange={handleInputChange} min="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
-              </div>
-              <div className="w-full md:w-32">
-                <label className="block text-sm font-medium text-gray-600 mb-1" title="Consumo Médio Diário">Consumo/Dia</label>
-                <input type="number" name="dailyConsumption" value={formData.dailyConsumption} onChange={handleInputChange} step="0.01" min="0" placeholder="0" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
-              </div>
-              <div className="w-full md:w-32">
-                <label className="block text-sm font-medium text-gray-600 mb-1">Preço (R$)</label>
-                <input type="number" name="price" value={formData.price} onChange={handleInputChange} step="0.01" min="0" placeholder="0.00" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all" />
-              </div>
-            </div>
-            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition-colors flex justify-center items-center gap-2 w-full md:w-auto">
-              <Plus size={18} />
-              <span className="hidden md:inline">Adicionar</span>
+      <main className="max-w-screen-2xl mx-auto px-4 md:px-8 py-10 space-y-10">
+        <section className="flex flex-col md:flex-row justify-between items-end gap-6">
+          <div>
+            <span className="text-primary font-bold tracking-widest text-xs uppercase">Estoque Zap</span>
+            <h2 className="text-4xl font-extrabold font-headline tracking-tight mt-1">{storeName}</h2>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={openOrderModal} className="flex items-center gap-2 px-5 py-2.5 bg-surface-container-lowest text-primary font-semibold rounded-lg shadow-sm border border-outline-variant hover:bg-surface-container transition-all active:scale-95">
+              <ClipboardCheck size={20} />
+              Gerar Pedido
             </button>
-          </form>
+            <button onClick={() => setActiveTab(activeTab === 'inventory' ? 'analysis' : 'inventory')} className="md:hidden flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary font-semibold rounded-lg shadow-md hover:opacity-90 transition-all active:scale-95">
+              <AlertTriangle size={20} />
+              {activeTab === 'inventory' ? 'Análise' : 'Inventário'}
+            </button>
+          </div>
         </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 sm:gap-3">
-            <div className="bg-blue-100 p-3 sm:p-2 rounded-xl text-blue-600"><Box size={24} className="sm:w-5 sm:h-5" /></div>
-            <div><p className="text-sm sm:text-xs text-gray-500">Peças Úteis</p><p className="text-xl sm:text-lg font-bold">{totalItems.toFixed(2).replace('.00', '')}</p></div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 sm:gap-3">
-            <div className="bg-green-100 p-3 sm:p-2 rounded-xl text-green-600"><DollarSign size={24} className="sm:w-5 sm:h-5" /></div>
-            <div><p className="text-sm sm:text-xs text-gray-500">Valor em Estoque</p><p className="text-xl sm:text-lg font-bold">{formatCurrency(totalValue)}</p></div>
-          </div>
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 sm:gap-3">
-            <div className="bg-red-100 p-3 sm:p-2 rounded-xl text-red-600"><AlertTriangle size={24} className="sm:w-5 sm:h-5" /></div>
-            <div><p className="text-sm sm:text-xs text-gray-500">Prejuízo (Descarte)</p><p className="text-xl sm:text-lg font-bold text-red-600">{formatCurrency(totalWasteValue)}</p></div>
-          </div>
-        </div>
-
-        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-8">
-          <div className="p-4 bg-gray-50 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h2 className="font-semibold text-gray-700 whitespace-nowrap">Artigos no Inventário ({filteredItems.length})</h2>
-            <div className="flex w-full sm:w-auto items-center gap-2">
-              <button onClick={openOrderModal} className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-600 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium whitespace-nowrap">
-                <ShoppingCart size={16} />
-                <span className="hidden sm:inline">Gerar Pedido</span>
-              </button>
-              <div className="relative flex-1 sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                <input type="text" placeholder="Buscar artigo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all text-sm" />
-              </div>
-              <button onClick={() => setIsResetModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium whitespace-nowrap">
-                <RefreshCw size={16} />
-                <span className="hidden sm:inline">Zerar</span>
-              </button>
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-primary group hover:bg-primary-container transition-colors duration-300 shadow-sm">
+            <div className="flex justify-between items-start">
+              <Package size={32} className="text-primary" />
+              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Volume Total</span>
+            </div>
+            <div className="mt-8">
+              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{totalItems.toFixed(2).replace('.00', '')}</div>
+              <div className="text-sm text-on-surface-variant mt-1 font-medium">Insumos Ativos</div>
             </div>
           </div>
-          
-          <div className="divide-y divide-gray-100 max-h-[60vh] overflow-y-auto overflow-x-hidden">
-            <AnimatePresence initial={false}>
-              {filteredItems.length === 0 ? (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 text-center text-gray-400">
-                    <Package size={48} className="mx-auto mb-3 opacity-20" />
-                    <p>{searchTerm ? 'Nenhum artigo encontrado na busca.' : 'O seu inventário está vazio.'}</p>
-                  </motion.div>
-                ) : (
-                  filteredItems.map((item: any) => (
-                    <motion.div key={item.id} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
-                      {editingId === item.id ? (
-                        <div className="flex-1 flex flex-col sm:flex-row gap-3 w-full">
-                          <div className="flex-1">
-                            <label className="text-xs text-gray-500">Nome do Artigo</label>
-                            <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                          </div>
-                          <div className="w-full sm:w-24">
-                            <label className="text-xs text-gray-500">Consumo/Dia</label>
-                            <input type="number" step="0.01" value={editFormData.dailyConsumption} onChange={(e) => setEditFormData({...editFormData, dailyConsumption: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                          </div>
-                          <div className="w-full sm:w-24">
-                            <label className="text-xs text-gray-500">Preço</label>
-                            <input type="number" step="0.01" value={editFormData.price} onChange={(e) => setEditFormData({...editFormData, price: e.target.value})} className="w-full p-2 border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                          </div>
-                          <div className="flex items-end gap-1">
-                            <button onClick={() => saveEditing(item.id)} className="p-2 bg-green-100 text-green-700 rounded hover:bg-green-200"><Check size={20} /></button>
-                            <button onClick={() => setEditingId(null)} className="p-2 bg-red-100 text-red-700 rounded hover:bg-red-200"><X size={20} /></button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex-1">
-                            <h3 className="font-medium text-gray-800 text-base">{item.name}</h3>
-                            <div className="flex items-center gap-2 text-xs text-gray-500">
-                              <span>{formatCurrency(item.price)} / un</span>
-                              {item.dailyConsumption > 0 && (
-                                <>
-                                  <span>•</span>
-                                  <span className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Gasto: {item.dailyConsumption}/dia</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-sm text-gray-600 font-medium w-20">Estoque:</span>
-                              <div className="flex items-center bg-gray-100 rounded-lg p-1 border border-gray-200">
-                                <button onClick={() => adjustValue(item.id, 'quantity', -1, item.quantity)} className="p-1 text-gray-600 hover:text-red-500 hover:bg-white rounded-md transition-all"><MinusCircle size={18} /></button>
-                                <input type="number" step="0.01" value={item.quantity ?? ''} onChange={(e) => handleDirectInput(item.id, 'quantity', e.target.value)} className="w-14 text-center font-semibold bg-transparent focus:outline-none focus:ring-1 focus:ring-blue-400 rounded" />
-                                <button onClick={() => adjustValue(item.id, 'quantity', 1, item.quantity)} className="p-1 text-gray-600 hover:text-green-500 hover:bg-white rounded-md transition-all"><PlusCircle size={18} /></button>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-sm text-red-500 font-medium w-20">Descarte:</span>
-                              <div className="flex items-center bg-red-50 rounded-lg p-1 border border-red-100">
-                                <button onClick={() => adjustValue(item.id, 'waste', -1, item.waste)} className="p-1 text-red-400 hover:text-red-600 hover:bg-white rounded-md transition-all"><MinusCircle size={18} /></button>
-                                <input type="number" step="0.01" value={item.waste ?? ''} onChange={(e) => handleDirectInput(item.id, 'waste', e.target.value)} className="w-14 text-center font-semibold text-red-600 bg-transparent focus:outline-none focus:ring-1 focus:ring-red-400 rounded" />
-                                <button onClick={() => adjustValue(item.id, 'waste', 1, item.waste)} className="p-1 text-red-400 hover:text-red-600 hover:bg-white rounded-md transition-all"><PlusCircle size={18} /></button>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-end sm:ml-2">
-                            <button onClick={() => startEditing(item)} className="text-gray-400 hover:text-blue-500 p-2 transition-colors"><Edit2 size={18} /></button>
-                            <button onClick={() => deleteItem(item.id)} className="text-gray-400 hover:text-red-500 p-2 transition-colors"><Trash2 size={20} /></button>
-                          </div>
-                        </>
-                      )}
-                    </motion.div>
-                  ))
-                )}
-            </AnimatePresence>
+          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-on-secondary-container group hover:bg-secondary-container transition-colors duration-300 shadow-sm">
+            <div className="flex justify-between items-start">
+              <DollarSign size={32} className="text-on-secondary-container" />
+              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Ativo Corrente</span>
+            </div>
+            <div className="mt-8">
+              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}</div>
+              <div className="text-sm text-on-surface-variant mt-1 font-medium">Valor em Estoque</div>
+            </div>
+          </div>
+          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-error group hover:bg-error-container transition-colors duration-300 shadow-sm">
+            <div className="flex justify-between items-start">
+              <Trash2 size={32} className="text-error" />
+              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Perda Operacional</span>
+            </div>
+            <div className="mt-8">
+              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalWasteValue)}</div>
+              <div className="text-sm text-on-surface-variant mt-1 font-medium">Prejuízo (Descarte)</div>
+            </div>
           </div>
         </section>
+
+        {activeTab === 'inventory' ? (
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
+            <aside className="xl:col-span-4 space-y-6">
+              <div className="bg-surface-container-low p-8 rounded-xl shadow-sm">
+                <h3 className="text-xl font-headline font-bold mb-6 flex items-center gap-2">
+                  <Edit size={24} className="text-primary" />
+                  Cadastrar Artigo
+                </h3>
+                <form onSubmit={addItem} className="space-y-5">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Nome do Produto</label>
+                    <input name="name" value={formData.name} onChange={handleInputChange} className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 transition-colors outline-none" placeholder="Ex: Polpa de Açaí 10L" type="text"/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Qtd Inicial</label>
+                      <input name="quantity" value={formData.quantity} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0" type="number"/>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Preço Unit.</label>
+                      <input name="price" value={formData.price} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0.00" type="number"/>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Consumo Diário Estimado</label>
+                    <input name="dailyConsumption" value={formData.dailyConsumption} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="Média de saídas por dia" type="number"/>
+                  </div>
+                  <button type="submit" className="w-full bg-primary text-on-primary font-bold py-4 rounded-lg mt-4 shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                    <Plus size={20} />
+                    Adicionar ao Inventário
+                  </button>
+                </form>
+              </div>
+              <div className="relative h-64 rounded-xl overflow-hidden group hidden md:block">
+                <img alt="Organization" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwX3OCZ8HWNi19lARoD2ylGhHqkTMdtfdQdaHacq5FG56YDxCdMuzIAqDdo-4pQ3wV85Fptj8wYX6l04-2a_KJxB7kjg58HWJ9nFKE2oFX11hpRrOPR9NGpcr2jisBeaaTvqXFsGQ2Vc67AI93WbIt6iPYxS7ibd6OqeouWjg8jhBbWxuNyCBS735AEXs716DYHVJLEdZj0ISg40pv7d6QyewEO7KPrmWhyKdZPz3iv2MJUGTTKUCBlM--r8jvh7wrWFSpTI0ZyiY5"/>
+                <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/20 to-transparent flex flex-col justify-end p-6">
+                  <p className="text-white font-headline font-bold text-lg">Otimização Maria Bonita</p>
+                  <p className="text-white/70 text-xs">Controle de validade e desperdício de insumos em tempo real.</p>
+                </div>
+              </div>
+            </aside>
+
+            <section className="xl:col-span-8 space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
+                <h3 className="text-2xl font-headline font-extrabold tracking-tight">Itens em Estoque</h3>
+                <div className="flex gap-2">
+                  <button onClick={shareViaWhatsApp} title="Exportar/Compartilhar" className="p-2 text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors"><Download size={20} /></button>
+                  <button onClick={() => setIsResetModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-error-container/20 text-error font-bold rounded-lg hover:bg-error-container/30 transition-colors text-sm">
+                    <RefreshCw size={18} />
+                    Zerar Tudo
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <AnimatePresence>
+                  {filteredItems.length === 0 ? (
+                    <div className="text-center py-12 text-on-surface-variant">
+                      <Package size={48} className="mx-auto mb-4 opacity-20" />
+                      <p>Nenhum artigo encontrado.</p>
+                    </div>
+                  ) : (
+                    filteredItems.map((item: any) => {
+                      const consumption = Number(item.dailyConsumption) > 0 ? Number(item.dailyConsumption) : Number(item.autoDailyConsumption || 0);
+                      const isLowStock = consumption > 0 && (Number(item.quantity) || 0) < (consumption * 2);
+                      const isHighConsumption = consumption > 5;
+                      
+                      return (
+                        <motion.div key={item.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-surface-container-lowest p-6 rounded-xl flex flex-col lg:flex-row items-center gap-6 lg:gap-8 border border-transparent transition-shadow hover:shadow-xl hover:shadow-purple-100/50 hover:border-primary/10">
+                          {editingId === item.id ? (
+                            <div className="flex-1 w-full flex flex-col sm:flex-row gap-3">
+                              <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="flex-1 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" />
+                              <input type="number" step="0.01" value={editFormData.price} onChange={(e) => setEditFormData({...editFormData, price: e.target.value})} className="w-24 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" placeholder="Preço" />
+                              <input type="number" step="0.01" value={editFormData.dailyConsumption} onChange={(e) => setEditFormData({...editFormData, dailyConsumption: e.target.value})} className="w-24 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" placeholder="Consumo" />
+                              <div className="flex gap-2">
+                                <button onClick={() => saveEditing(item.id)} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle size={20} /></button>
+                                <button onClick={() => setEditingId(null)} className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"><X size={20} /></button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex-1 w-full min-w-0">
+                                <div className="flex items-center gap-3 mb-1">
+                                  <h4 className="text-lg font-bold truncate">{item.name}</h4>
+                                  {isLowStock ? (
+                                    <span className="bg-error-container text-on-error-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Estoque Baixo</span>
+                                  ) : isHighConsumption ? (
+                                    <span className="bg-primary-container text-on-primary-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Em Alta</span>
+                                  ) : (
+                                    <span className="bg-secondary-container text-on-secondary-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Estável</span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-on-surface-variant font-medium">
+                                  <span className="flex items-center gap-1"><TrendingUp size={14} /> Consumo: {consumption.toFixed(2)}/dia</span>
+                                  <span className="flex items-center gap-1"><Tag size={14} /> Preço: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.price)}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-6 lg:gap-12 shrink-0 w-full lg:w-auto justify-between lg:justify-end">
+                                <div className="flex flex-col items-center gap-2">
+                                  <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Estoque Atual</span>
+                                  <div className="flex items-center bg-surface-container-low rounded-full px-2 py-1">
+                                    <button onClick={() => adjustValue(item, 'quantity', -1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors text-primary"><Minus size={16} /></button>
+                                    <input type="number" step="0.01" value={item.quantity ?? ''} onChange={(e) => handleDirectInput(item, 'quantity', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg bg-transparent focus:outline-none" />
+                                    <button onClick={() => adjustValue(item, 'quantity', 1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors text-primary"><Plus size={16} /></button>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-center gap-2">
+                                  <span className="text-[10px] font-bold text-error uppercase tracking-widest">Descarte</span>
+                                  <div className="flex items-center bg-error-container/10 rounded-full px-2 py-1">
+                                    <button onClick={() => adjustValue(item, 'waste', -1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-error-container/20 transition-colors text-error"><Minus size={16} /></button>
+                                    <input type="number" step="0.01" value={item.waste ?? ''} onChange={(e) => handleDirectInput(item, 'waste', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg text-error bg-transparent focus:outline-none" />
+                                    <button onClick={() => adjustValue(item, 'waste', 1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-error-container/20 transition-colors text-error"><Plus size={16} /></button>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <button onClick={() => startEditing(item)} className="text-on-surface-variant hover:text-primary transition-colors"><Edit size={18} /></button>
+                                  <button onClick={() => deleteItem(item.id)} className="text-on-surface-variant hover:text-error transition-colors"><Trash2 size={18} /></button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </motion.div>
+                      );
+                    })
+                  )}
+                </AnimatePresence>
+              </div>
+            </section>
+          </div>
+        ) : (
+          <section className="flex flex-col gap-6">
+            <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
+              <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-primary">
+                <Package size={24} />
+                Produtos de Baixa Saída (Parados)
+              </h2>
+              <p className="text-sm text-on-surface-variant mb-6">Itens com estoque alto, mas com consumo diário calculado muito baixo ou zero.</p>
+              <div className="space-y-4">
+                {items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).length === 0 ? (
+                  <p className="text-sm text-on-surface-variant italic">Nenhum produto parado detectado.</p>
+                ) : items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).map(item => (
+                  <div key={item.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-lg border border-outline-variant/30">
+                    <span className="font-bold text-on-surface">{item.name}</span>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-on-surface">Estoque: {item.quantity}</p>
+                      <p className="text-xs text-on-surface-variant">Saída média: {Number(item.autoDailyConsumption || 0).toFixed(2)}/dia</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
+              <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-error">
+                <Trash2 size={24} />
+                Atenção: Alto Desperdício
+              </h2>
+              <p className="text-sm text-on-surface-variant mb-6">Itens com maior quantidade de descarte registrado.</p>
+              <div className="space-y-4">
+                {items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).length === 0 ? (
+                  <p className="text-sm text-on-surface-variant italic">Nenhum desperdício registrado.</p>
+                ) : items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).map(item => (
+                  <div key={item.id} className="flex justify-between items-center p-4 bg-error-container/10 rounded-lg border border-error/20">
+                    <span className="font-bold text-error">{item.name}</span>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-error">Descarte: {item.waste}</p>
+                      <p className="text-xs text-error/80">Prejuízo: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(item.waste) || 0) * (Number(item.price) || 0))}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       <div className="fixed bottom-6 right-6 md:bottom-10 md:right-10 z-40">
@@ -408,12 +535,12 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
       <AnimatePresence>
         {isResetModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
-              <div className="flex items-center gap-3 text-red-600 mb-4"><AlertTriangle size={24} /><h3 className="text-lg font-bold">Zerar Inventário?</h3></div>
-              <p className="text-gray-600 mb-6">Tem certeza que deseja zerar todas as quantidades e descartes?</p>
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-surface-container-lowest rounded-2xl p-6 max-w-sm w-full shadow-xl">
+              <div className="flex items-center gap-3 text-error mb-4"><AlertTriangle size={24} /><h3 className="text-lg font-bold">Zerar Inventário?</h3></div>
+              <p className="text-on-surface-variant mb-6">Tem certeza que deseja zerar todas as quantidades e descartes?</p>
               <div className="flex gap-3 justify-end">
-                <button onClick={() => setIsResetModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">Cancelar</button>
-                <button onClick={confirmReset} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors">Sim, Zerar</button>
+                <button onClick={() => setIsResetModalOpen(false)} className="px-4 py-2 text-on-surface-variant hover:bg-surface-container rounded-lg font-medium transition-colors">Cancelar</button>
+                <button onClick={confirmReset} className="px-4 py-2 bg-error hover:bg-error/90 text-on-error rounded-lg font-medium transition-colors">Sim, Zerar</button>
               </div>
             </motion.div>
           </div>
@@ -423,29 +550,29 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
       <AnimatePresence>
         {isOrderModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-xl max-h-[90vh] flex flex-col">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-surface-container-lowest rounded-2xl p-6 max-w-2xl w-full shadow-xl max-h-[90vh] flex flex-col">
               <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3 text-blue-600">
+                <div className="flex items-center gap-3 text-primary">
                   <ShoppingCart size={28} />
-                  <h3 className="text-xl font-bold text-gray-800">Gerador de Pedidos</h3>
+                  <h3 className="text-xl font-bold font-headline text-on-surface">Gerador de Pedidos</h3>
                 </div>
-                <button onClick={() => setIsOrderModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+                <button onClick={() => setIsOrderModalOpen(false)} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors">
                   <X size={24} />
                 </button>
               </div>
               
-              <div className="flex items-center gap-4 mb-6 bg-blue-50 p-4 rounded-xl border border-blue-100">
-                <label className="font-medium text-blue-800">Previsão para quantos dias?</label>
-                <div className="flex items-center bg-white rounded-lg border border-blue-200 overflow-hidden">
-                  <button onClick={() => calculateOrder(Math.max(1, orderDays - 1))} className="px-3 py-2 text-blue-600 hover:bg-blue-50 transition-colors"><MinusCircle size={18} /></button>
-                  <input type="number" value={orderDays} onChange={(e) => calculateOrder(Number(e.target.value))} className="w-16 text-center font-bold text-blue-800 focus:outline-none" />
-                  <button onClick={() => calculateOrder(orderDays + 1)} className="px-3 py-2 text-blue-600 hover:bg-blue-50 transition-colors"><PlusCircle size={18} /></button>
+              <div className="flex items-center gap-4 mb-6 bg-primary-container/30 p-4 rounded-xl border border-primary-container">
+                <label className="font-medium text-primary">Previsão para quantos dias?</label>
+                <div className="flex items-center bg-surface-container-lowest rounded-lg border border-outline-variant overflow-hidden">
+                  <button onClick={() => calculateOrder(Math.max(1, orderDays - 1))} className="px-3 py-2 text-primary hover:bg-surface-container transition-colors"><Minus size={18} /></button>
+                  <input type="number" value={orderDays} onChange={(e) => calculateOrder(Number(e.target.value))} className="w-16 text-center font-bold text-primary focus:outline-none" />
+                  <button onClick={() => calculateOrder(orderDays + 1)} className="px-3 py-2 text-primary hover:bg-surface-container transition-colors"><Plus size={18} /></button>
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto pr-2 mb-6">
                 {orderItems.length === 0 ? (
-                  <div className="text-center py-10 text-gray-400">
+                  <div className="text-center py-10 text-on-surface-variant">
                     <Package size={48} className="mx-auto mb-3 opacity-20" />
                     <p>Nenhum item configurado com &quot;Consumo Diário&quot;.</p>
                     <p className="text-sm mt-2">Edite seus produtos e adicione o consumo médio diário para gerar pedidos automaticamente.</p>
@@ -453,15 +580,15 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 ) : (
                   <div className="space-y-3">
                     {orderItems.map(item => (
-                      <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${item.adjusted > 0 ? 'bg-white border-gray-200 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+                      <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${item.adjusted > 0 ? 'bg-surface-container-lowest border-outline-variant shadow-sm' : 'bg-surface-container border-transparent opacity-60'}`}>
                         <div className="flex-1">
-                          <p className="font-medium text-gray-800">{item.name}</p>
-                          <p className="text-xs text-gray-500">Sugestão do sistema: {item.suggested}</p>
+                          <p className="font-medium text-on-surface">{item.name}</p>
+                          <p className="text-xs text-on-surface-variant">Sugestão do sistema: {item.suggested}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <button onClick={() => handleAdjustOrder(item.id, -1)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><MinusCircle size={20} /></button>
-                          <span className={`w-8 text-center font-bold text-lg ${item.adjusted > 0 ? 'text-blue-600' : 'text-gray-400'}`}>{item.adjusted}</span>
-                          <button onClick={() => handleAdjustOrder(item.id, 1)} className="p-2 text-gray-400 hover:text-green-500 hover:bg-green-50 rounded-lg transition-colors"><PlusCircle size={20} /></button>
+                          <button onClick={() => handleAdjustOrder(item.id, -1)} className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container/20 rounded-lg transition-colors"><Minus size={20} /></button>
+                          <span className={`w-8 text-center font-bold text-lg ${item.adjusted > 0 ? 'text-primary' : 'text-on-surface-variant'}`}>{item.adjusted}</span>
+                          <button onClick={() => handleAdjustOrder(item.id, 1)} className="p-2 text-on-surface-variant hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"><Plus size={20} /></button>
                         </div>
                       </div>
                     ))}
@@ -469,11 +596,11 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 )}
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-gray-100">
-                <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-xl transition-colors">
+              <div className="flex gap-3 pt-4 border-t border-surface-container">
+                <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 px-4 bg-surface-container hover:bg-surface-container-high text-on-surface font-medium rounded-xl transition-colors">
                   Cancelar
                 </button>
-                <button onClick={sendOrderViaWhatsApp} disabled={orderItems.filter(o => o.adjusted > 0).length === 0} className="flex-1 py-3 px-4 bg-[#25D366] hover:bg-[#128C7E] disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                <button onClick={sendOrderViaWhatsApp} disabled={orderItems.filter(o => o.adjusted > 0).length === 0} className="flex-1 py-3 px-4 bg-[#25D366] hover:bg-[#128C7E] disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
                   <Send size={18} />
                   Enviar Pedido
                 </button>
@@ -485,7 +612,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
       <AnimatePresence>
         {notification && (
-          <motion.div initial={{ opacity: 0, y: -20, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: -20, x: '-50%' }} className="fixed top-6 left-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-xl border border-gray-700 z-50 flex items-center gap-2">
+          <motion.div initial={{ opacity: 0, y: -20, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: -20, x: '-50%' }} className="fixed top-6 left-1/2 bg-inverse-surface text-inverse-on-surface px-6 py-3 rounded-full shadow-xl border border-outline-variant z-50 flex items-center gap-2">
             {notification.includes('sucesso') && <CheckCircle size={18} className="text-green-400" />}
             {notification}
           </motion.div>
