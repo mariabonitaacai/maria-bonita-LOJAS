@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical } from 'lucide-react';
+import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../firebase';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
   const [items, setItems] = useState<any[]>([]);
@@ -480,45 +481,120 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
           </div>
         ) : (
           <section className="flex flex-col gap-6">
-            <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
-              <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-primary">
-                <Package size={24} />
-                Produtos de Baixa Saída (Parados)
-              </h2>
-              <p className="text-sm text-on-surface-variant mb-6">Itens com estoque alto, mas com consumo diário calculado muito baixo ou zero.</p>
-              <div className="space-y-4">
-                {items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).length === 0 ? (
-                  <p className="text-sm text-on-surface-variant italic">Nenhum produto parado detectado.</p>
-                ) : items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).map(item => (
-                  <div key={item.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-lg border border-outline-variant/30">
-                    <span className="font-bold text-on-surface">{item.name}</span>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-on-surface">Estoque: {item.quantity}</p>
-                      <p className="text-xs text-on-surface-variant">Saída média: {Number(item.autoDailyConsumption || 0).toFixed(2)}/dia</p>
-                    </div>
-                  </div>
-                ))}
+            {/* Dashboard Visual */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Gráfico de Pizza: Distribuição Financeira */}
+              <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-transparent flex flex-col">
+                <h2 className="text-lg font-headline font-bold mb-4 flex items-center gap-2 text-on-surface">
+                  <PieChartIcon size={20} className="text-primary" />
+                  Distribuição Financeira
+                </h2>
+                <div className="flex-1 min-h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'Ativo Corrente', value: totalValue, color: '#6366f1' }, // primary
+                          { name: 'Perda (Descarte)', value: totalWasteValue, color: '#ef4444' } // error
+                        ]}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={110}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {[
+                          { name: 'Ativo Corrente', value: totalValue, color: '#6366f1' },
+                          { name: 'Perda (Descarte)', value: totalWasteValue, color: '#ef4444' }
+                        ].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        formatter={(value: any) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value))}
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend verticalAlign="bottom" height={36} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Gráfico de Barras: Top Consumo */}
+              <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-transparent flex flex-col">
+                <h2 className="text-lg font-headline font-bold mb-4 flex items-center gap-2 text-on-surface">
+                  <BarChart3 size={20} className="text-primary" />
+                  Top 5: Maior Consumo Diário
+                </h2>
+                <div className="flex-1 min-h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={items
+                        .map(item => ({
+                          name: item.name,
+                          consumo: Number(item.dailyConsumption) > 0 ? Number(item.dailyConsumption) : Number(item.autoDailyConsumption || 0)
+                        }))
+                        .sort((a, b) => b.consumo - a.consumo)
+                        .slice(0, 5)}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                      <XAxis type="number" />
+                      <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 12 }} />
+                      <RechartsTooltip 
+                        cursor={{ fill: '#f1f5f9' }}
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Bar dataKey="consumo" name="Consumo/Dia" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
 
-            <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
-              <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-error">
-                <Trash2 size={24} />
-                Atenção: Alto Desperdício
-              </h2>
-              <p className="text-sm text-on-surface-variant mb-6">Itens com maior quantidade de descarte registrado.</p>
-              <div className="space-y-4">
-                {items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).length === 0 ? (
-                  <p className="text-sm text-on-surface-variant italic">Nenhum desperdício registrado.</p>
-                ) : items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).map(item => (
-                  <div key={item.id} className="flex justify-between items-center p-4 bg-error-container/10 rounded-lg border border-error/20">
-                    <span className="font-bold text-error">{item.name}</span>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-error">Descarte: {item.waste}</p>
-                      <p className="text-xs text-error/80">Prejuízo: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(item.waste) || 0) * (Number(item.price) || 0))}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
+                <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-primary">
+                  <Package size={24} />
+                  Produtos de Baixa Saída (Parados)
+                </h2>
+                <p className="text-sm text-on-surface-variant mb-6">Itens com estoque alto, mas com consumo diário calculado muito baixo ou zero.</p>
+                <div className="space-y-4">
+                  {items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).length === 0 ? (
+                    <p className="text-sm text-on-surface-variant italic">Nenhum produto parado detectado.</p>
+                  ) : items.filter(i => (Number(i.quantity) || 0) > 5 && (Number(i.autoDailyConsumption) || 0) < 0.5).map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-lg border border-outline-variant/30">
+                      <span className="font-bold text-on-surface">{item.name}</span>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-on-surface">Estoque: {item.quantity}</p>
+                        <p className="text-xs text-on-surface-variant">Saída média: {Number(item.autoDailyConsumption || 0).toFixed(2)}/dia</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-surface-container-lowest p-8 rounded-xl shadow-sm border border-transparent">
+                <h2 className="text-xl font-headline font-bold mb-2 flex items-center gap-2 text-error">
+                  <Trash2 size={24} />
+                  Atenção: Alto Desperdício
+                </h2>
+                <p className="text-sm text-on-surface-variant mb-6">Itens com maior quantidade de descarte registrado.</p>
+                <div className="space-y-4">
+                  {items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).length === 0 ? (
+                    <p className="text-sm text-on-surface-variant italic">Nenhum desperdício registrado.</p>
+                  ) : items.filter(i => (Number(i.waste) || 0) > 0).sort((a, b) => (Number(b.waste) || 0) - (Number(a.waste) || 0)).slice(0, 5).map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-4 bg-error-container/10 rounded-lg border border-error/20">
+                      <span className="font-bold text-error">{item.name}</span>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-error">Descarte: {item.waste}</p>
+                        <p className="text-xs text-error/80">Prejuízo: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(item.waste) || 0) * (Number(item.price) || 0))}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </section>
