@@ -20,6 +20,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const [orderDays, setOrderDays] = useState(7);
   const [orderItems, setOrderItems] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'inventory' | 'analysis'>('inventory');
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, { quantity?: number, waste?: number }>>({});
 
   const showNotification = (msg: string) => {
     setNotification(msg);
@@ -102,24 +103,65 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     return updates;
   };
 
-  const adjustValue = async (item: any, field: string, change: number) => {
-    const newValue = Math.max(0, (item[field] || 0) + change);
+  const adjustValue = (item: any, field: string, change: number) => {
+    const currentValue = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'] ?? item[field] ?? 0;
+    const newValue = Math.max(0, currentValue + change);
+    setPendingUpdates(prev => ({
+      ...prev,
+      [item.id]: {
+        ...prev[item.id],
+        [field]: Number(newValue.toFixed(2))
+      }
+    }));
+  };
+
+  const handleDirectInput = (item: any, field: string, value: string) => {
+    const numValue = value === '' ? undefined : Number(value);
+    setPendingUpdates(prev => ({
+      ...prev,
+      [item.id]: {
+        ...prev[item.id],
+        [field]: numValue
+      }
+    }));
+  };
+
+  const confirmUpdate = async (item: any, field: string) => {
+    const newValue = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'];
+    if (newValue === undefined) return;
+
     try {
       const updates = calculateTrackingUpdates(item, field, newValue);
       await updateDoc(doc(db, `stores/${storeId}/items`, item.id), updates);
+      
+      setPendingUpdates(prev => {
+        const newItemUpdates = { ...prev[item.id] };
+        delete newItemUpdates[field as 'quantity' | 'waste'];
+        if (Object.keys(newItemUpdates).length === 0) {
+          const newPending = { ...prev };
+          delete newPending[item.id];
+          return newPending;
+        }
+        return { ...prev, [item.id]: newItemUpdates };
+      });
+      showNotification('Valor atualizado!');
     } catch (error) {
       console.error("Error updating value:", error);
+      showNotification('Erro ao atualizar valor.');
     }
   };
 
-  const handleDirectInput = async (item: any, field: string, value: string) => {
-    if (value === '') return;
-    try {
-      const updates = calculateTrackingUpdates(item, field, Number(value));
-      await updateDoc(doc(db, `stores/${storeId}/items`, item.id), updates);
-    } catch (error) {
-      console.error("Error updating value:", error);
-    }
+  const cancelUpdate = (itemId: string, field: string) => {
+    setPendingUpdates(prev => {
+      const newItemUpdates = { ...prev[itemId] };
+      delete newItemUpdates[field as 'quantity' | 'waste'];
+      if (Object.keys(newItemUpdates).length === 0) {
+        const newPending = { ...prev };
+        delete newPending[itemId];
+        return newPending;
+      }
+      return { ...prev, [itemId]: newItemUpdates };
+    });
   };
 
   const startEditing = (item: any) => {
@@ -450,19 +492,31 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                               <div className="flex items-center gap-6 lg:gap-12 shrink-0 w-full lg:w-auto justify-between lg:justify-end">
                                 <div className="flex flex-col items-center gap-2">
                                   <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Estoque Atual</span>
-                                  <div className="flex items-center bg-surface-container-low rounded-full px-2 py-1">
+                                  <div className={`flex items-center rounded-full px-2 py-1 transition-colors ${pendingUpdates[item.id]?.quantity !== undefined ? 'bg-primary/10 ring-2 ring-primary' : 'bg-surface-container-low'}`}>
                                     <button onClick={() => adjustValue(item, 'quantity', -1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors text-primary"><Minus size={16} /></button>
-                                    <input type="number" step="0.01" value={item.quantity ?? ''} onChange={(e) => handleDirectInput(item, 'quantity', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg bg-transparent focus:outline-none" />
+                                    <input type="number" step="0.01" value={pendingUpdates[item.id]?.quantity ?? item.quantity ?? ''} onChange={(e) => handleDirectInput(item, 'quantity', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg bg-transparent focus:outline-none" />
                                     <button onClick={() => adjustValue(item, 'quantity', 1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors text-primary"><Plus size={16} /></button>
                                   </div>
+                                  {pendingUpdates[item.id]?.quantity !== undefined && (
+                                    <div className="flex gap-2 mt-1">
+                                      <button onClick={() => confirmUpdate(item, 'quantity')} className="p-1 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-sm"><Check size={12} /></button>
+                                      <button onClick={() => cancelUpdate(item.id, 'quantity')} className="p-1 bg-gray-400 text-white rounded-full hover:bg-gray-500 transition-colors shadow-sm"><X size={12} /></button>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex flex-col items-center gap-2">
                                   <span className="text-[10px] font-bold text-error uppercase tracking-widest">Descarte</span>
-                                  <div className="flex items-center bg-error-container/10 rounded-full px-2 py-1">
+                                  <div className={`flex items-center rounded-full px-2 py-1 transition-colors ${pendingUpdates[item.id]?.waste !== undefined ? 'bg-error/10 ring-2 ring-error' : 'bg-error-container/10'}`}>
                                     <button onClick={() => adjustValue(item, 'waste', -1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-error-container/20 transition-colors text-error"><Minus size={16} /></button>
-                                    <input type="number" step="0.01" value={item.waste ?? ''} onChange={(e) => handleDirectInput(item, 'waste', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg text-error bg-transparent focus:outline-none" />
+                                    <input type="number" step="0.01" value={pendingUpdates[item.id]?.waste ?? item.waste ?? ''} onChange={(e) => handleDirectInput(item, 'waste', e.target.value)} className="w-14 text-center font-headline font-extrabold text-lg text-error bg-transparent focus:outline-none" />
                                     <button onClick={() => adjustValue(item, 'waste', 1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-error-container/20 transition-colors text-error"><Plus size={16} /></button>
                                   </div>
+                                  {pendingUpdates[item.id]?.waste !== undefined && (
+                                    <div className="flex gap-2 mt-1">
+                                      <button onClick={() => confirmUpdate(item, 'waste')} className="p-1 bg-green-500 text-white rounded-full hover:bg-green-600 transition-colors shadow-sm"><Check size={12} /></button>
+                                      <button onClick={() => cancelUpdate(item.id, 'waste')} className="p-1 bg-gray-400 text-white rounded-full hover:bg-gray-500 transition-colors shadow-sm"><X size={12} /></button>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex flex-col gap-2">
                                   <button onClick={() => startEditing(item)} className="text-on-surface-variant hover:text-primary transition-colors"><Edit size={18} /></button>
