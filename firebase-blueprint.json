@@ -59,9 +59,80 @@
         "waste": {
           "type": "number",
           "description": "The amount of waste/loss."
+        },
+        "minQuantity": {
+          "type": "number",
+          "description": "Minimum stock alert level."
+        },
+        "category": {
+          "type": "string",
+          "description": "Item category (e.g., Insumos, Embalagens)."
         }
       },
       "required": ["name", "quantity", "price", "waste"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "An expense or account payable for a store.",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string", "description": "Description of the expense" },
+        "amount": { "type": "number", "description": "Amount to be paid" },
+        "dueDate": { "type": "string", "description": "Due date in YYYY-MM-DD format" },
+        "category": { "type": "string", "description": "Category of the expense" },
+        "notes": { "type": "string", "description": "Optional notes" },
+        "status": { "type": "string", "enum": ["pending", "paid", "cancelled"], "description": "Status of the expense" },
+        "paymentSource": { "type": "string", "enum": ["cash_drawer", "external"], "description": "Where the money comes from" },
+        "isRecurring": { "type": "boolean", "description": "If this expense repeats monthly" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "User ID who created it" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["description", "amount", "dueDate", "status", "paymentSource", "createdAt", "createdBy"]
+    },
+    "Closing": {
+      "title": "Closing",
+      "description": "Daily closing record for a store.",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "description": "Date of the closing in YYYY-MM-DD format" },
+        "pix": { "type": "number", "description": "Total PIX" },
+        "credit": { "type": "number", "description": "Total Credit Card" },
+        "debit": { "type": "number", "description": "Total Debit Card" },
+        "cash": { "type": "number", "description": "Total Cash" },
+        "total": { "type": "number", "description": "Total amount" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "createdBy": { "type": "string", "description": "User ID who created it" }
+      },
+      "required": ["date", "pix", "credit", "debit", "cash", "total", "createdAt", "createdBy"]
+    },
+    "CashSession": {
+      "title": "CashSession",
+      "description": "A session for cash flow management (Opening, Sangria, Closing).",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string" },
+        "date": { "type": "string", "description": "YYYY-MM-DD" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "openedAt": { "type": "string" },
+        "openedBy": { "type": "string" },
+        "openingBills": { "type": "number", "description": "Initial cash in bills" },
+        "openingCoins": { "type": "number", "description": "Initial cash in coins" },
+        "openingChangeReserve": { "type": "number", "description": "Initial change reserve (Caixa 2)" },
+        "closedAt": { "type": "string" },
+        "closedBy": { "type": "string" },
+        "closingBills": { "type": "number", "description": "Final cash in bills" },
+        "closingCoins": { "type": "number", "description": "Final cash in coins" },
+        "closingChangeReserve": { "type": "number", "description": "Final change reserve (Caixa 2)" },
+        "sangria": { "type": "number", "description": "Amount withdrawn" },
+        "cashSales": { "type": "number", "description": "Reported cash sales" },
+        "pix": { "type": "number" },
+        "credit": { "type": "number" },
+        "debit": { "type": "number" },
+        "totalReported": { "type": "number" }
+      },
+      "required": ["storeId", "date", "status", "openedAt", "openedBy", "openingBills", "openingCoins", "openingChangeReserve"]
     }
   },
   "firestore": {
@@ -82,6 +153,24 @@
         "$ref": "#/entities/Item"
       },
       "description": "Stores the inventory items for a specific store."
+    },
+    "/stores/{storeId}/expenses/{expenseId}": {
+      "schema": {
+        "$ref": "#/entities/Expense"
+      },
+      "description": "Stores the expenses (accounts payable) for a specific store."
+    },
+    "/stores/{storeId}/closings/{closingId}": {
+      "schema": {
+        "$ref": "#/entities/Closing"
+      },
+      "description": "Stores the daily closings (accounts receivable) for a specific store."
+    },
+    "/stores/{storeId}/cashSessions/{sessionId}": {
+      "schema": {
+        "$ref": "#/entities/CashSession"
+      },
+      "description": "Stores cash flow sessions (opening/closing) for a specific store."
     }
   }
 }

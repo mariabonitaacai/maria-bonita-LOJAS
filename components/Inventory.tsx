@@ -1,44 +1,89 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, doc, onSnapshot, setDoc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../firebase';
+import { useFinance } from '../hooks/useFinance';
+import { useInventory } from '../hooks/useInventory';
+import { useCashSession } from '../hooks/useCashSession';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
-  const [items, setItems] = useState<any[]>([]);
-  const [formData, setFormData] = useState({ name: '', quantity: 0, price: '', dailyConsumption: '' });
+  const { 
+    items, 
+    isLoading: isInventoryLoading, 
+    addItem: addItemHook, 
+    updateItem: updateItemHook, 
+    deleteItem: deleteItemHook, 
+    resetInventory: resetInventoryHook,
+    confirmTrackingUpdate
+  } = useInventory(storeId);
+  
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    quantity: 0, 
+    price: '', 
+    dailyConsumption: '',
+    minQuantity: '',
+    category: ''
+  });
   const [notification, setNotification] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState({ name: '', price: '', dailyConsumption: '' });
+  const [editFormData, setEditFormData] = useState({ 
+    name: '', 
+    price: '', 
+    dailyConsumption: '',
+    minQuantity: '',
+    category: ''
+  });
   
   // Order Generator State
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderDays, setOrderDays] = useState(7);
   const [orderItems, setOrderItems] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'analysis'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'analysis' | 'finance'>('inventory');
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, { quantity?: number, waste?: number }>>({});
+
+  // Finance State
+  const [expenseData, setExpenseData] = useState({ 
+    description: '', 
+    amount: '', 
+    dueDate: '', 
+    category: '',
+    notes: '', 
+    paymentSource: 'cash_drawer' as 'cash_drawer' | 'external',
+    isRecurring: false
+  });
+  const [closingData, setClosingData] = useState({ pix: '', credit: '', debit: '', cash: '' });
+  const { expenses: recentExpenses, closings: recentClosings, isLoading: isFinanceLoading, addExpense: addExpenseHook, addClosing: addClosingHook, deleteExpense: deleteExpenseHook } = useFinance(storeId, 5);
+
+  const {
+    currentSession,
+    isLoading: isSessionLoading,
+    openSession: openSessionHook,
+    closeSession: closeSessionHook
+  } = useCashSession(storeId);
+
+  const isAnyLoading = isInventoryLoading || isSessionLoading || isFinanceLoading;
+
+  const [openingData, setOpeningData] = useState({ bills: '', coins: '', changeReserve: '' });
+  const [closingFlowData, setClosingFlowData] = useState({ 
+    bills: '', 
+    coins: '', 
+    changeReserve: '', 
+    sangria: '',
+    cashSales: '',
+    pix: '',
+    credit: '',
+    debit: ''
+  });
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 4000);
   };
-
-  useEffect(() => {
-    if (!storeId) return;
-    const itemsRef = collection(db, `stores/${storeId}/items`);
-    const unsubscribe = onSnapshot(itemsRef, (snapshot) => {
-      const loadedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setItems(loadedItems);
-    }, (error) => {
-      console.error("Error fetching items:", error);
-      showNotification("Erro ao carregar itens.");
-    });
-    return () => unsubscribe();
-  }, [storeId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -52,14 +97,23 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
       return;
     }
     try {
-      await addDoc(collection(db, `stores/${storeId}/items`), {
+      await addItemHook({
         name: formData.name,
         quantity: Number(formData.quantity) || 0,
         waste: 0,
         price: Number(formData.price.replace(',', '.')) || 0,
-        dailyConsumption: Number(formData.dailyConsumption) || 0
+        dailyConsumption: Number(formData.dailyConsumption) || 0,
+        minQuantity: Number(formData.minQuantity) || 0,
+        category: formData.category
       });
-      setFormData({ name: '', quantity: 0, price: '', dailyConsumption: '' });
+      setFormData({ 
+        name: '', 
+        quantity: 0, 
+        price: '', 
+        dailyConsumption: '',
+        minQuantity: '',
+        category: ''
+      });
       setSearchTerm('');
       showNotification('Artigo adicionado com sucesso!');
     } catch (error) {
@@ -70,37 +124,11 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   const deleteItem = async (id: string) => {
     try {
-      await deleteDoc(doc(db, `stores/${storeId}/items`, id));
+      await deleteItemHook(id);
       showNotification('Artigo removido.');
     } catch (error) {
       console.error("Error deleting item:", error);
     }
-  };
-
-  const calculateTrackingUpdates = (item: any, field: string, newValue: number) => {
-    const updates: any = { [field]: Number(newValue.toFixed(2)) };
-    
-    if (field === 'quantity') {
-      const today = new Date().toISOString().split('T')[0];
-      
-      if (item.lastCountDate !== today) {
-        if (item.lastCountDate) {
-          const diff = (item.lastCountQuantity || 0) - newValue;
-          if (diff > 0) {
-            const currentAvg = item.autoDailyConsumption || 0;
-            const days = item.daysTracked || 0;
-            const newAvg = ((currentAvg * days) + diff) / (days + 1);
-            updates.autoDailyConsumption = Number(newAvg.toFixed(2));
-            updates.daysTracked = days + 1;
-          }
-        }
-        updates.lastCountDate = today;
-        updates.lastCountQuantity = newValue;
-      } else {
-        updates.lastCountQuantity = newValue;
-      }
-    }
-    return updates;
   };
 
   const adjustValue = (item: any, field: string, change: number) => {
@@ -131,8 +159,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     if (newValue === undefined) return;
 
     try {
-      const updates = calculateTrackingUpdates(item, field, newValue);
-      await updateDoc(doc(db, `stores/${storeId}/items`, item.id), updates);
+      await confirmTrackingUpdate(item, field, newValue);
       
       setPendingUpdates(prev => {
         const newItemUpdates = { ...prev[item.id] };
@@ -166,7 +193,13 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   const startEditing = (item: any) => {
     setEditingId(item.id);
-    setEditFormData({ name: item.name, price: item.price, dailyConsumption: item.dailyConsumption || '' });
+    setEditFormData({ 
+      name: item.name, 
+      price: item.price, 
+      dailyConsumption: item.dailyConsumption || '',
+      minQuantity: item.minQuantity || '',
+      category: item.category || ''
+    });
   };
 
   const saveEditing = async (id: string) => {
@@ -175,10 +208,12 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
       return;
     }
     try {
-      await updateDoc(doc(db, `stores/${storeId}/items`, id), {
+      await updateItemHook(id, {
         name: editFormData.name,
         price: Number(String(editFormData.price).replace(',', '.')) || 0,
-        dailyConsumption: Number(editFormData.dailyConsumption) || 0
+        dailyConsumption: Number(editFormData.dailyConsumption) || 0,
+        minQuantity: Number(editFormData.minQuantity) || 0,
+        category: editFormData.category
       });
       setEditingId(null);
       showNotification('Artigo atualizado com sucesso!');
@@ -189,10 +224,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   const confirmReset = async () => {
     try {
-      const promises = items.map(item => 
-        updateDoc(doc(db, `stores/${storeId}/items`, item.id), { quantity: 0, waste: 0 })
-      );
-      await Promise.all(promises);
+      await resetInventoryHook();
       setIsResetModalOpen(false);
       showNotification('Inventário zerado com sucesso!');
     } catch (error) {
@@ -299,11 +331,187 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
+  const handleExpenseChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setExpenseData(prev => ({ ...prev, [name]: checked }));
+    } else {
+      setExpenseData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleClosingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setClosingData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleOpeningFlowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setOpeningData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleClosingFlowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setClosingFlowData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const openCashSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await openSessionHook({
+        date: new Date().toISOString().split('T')[0],
+        openedBy: auth.currentUser?.uid || '',
+        openingBills: Number(openingData.bills.replace(',', '.')) || 0,
+        openingCoins: Number(openingData.coins.replace(',', '.')) || 0,
+        openingChangeReserve: Number(openingData.changeReserve.replace(',', '.')) || 0
+      });
+      setOpeningData({ bills: '', coins: '', changeReserve: '' });
+      showNotification('Caixa aberto com sucesso!');
+    } catch (error) {
+      console.error("Error opening cash session:", error);
+      showNotification('Erro ao abrir o caixa.');
+    }
+  };
+
+  const closeCashSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentSession) return;
+
+    const pix = Number(closingFlowData.pix.replace(',', '.')) || 0;
+    const credit = Number(closingFlowData.credit.replace(',', '.')) || 0;
+    const debit = Number(closingFlowData.debit.replace(',', '.')) || 0;
+    const cashSales = Number(closingFlowData.cashSales.replace(',', '.')) || 0;
+    const totalReported = pix + credit + debit + cashSales;
+
+    const closingBills = Number(closingFlowData.bills.replace(',', '.')) || 0;
+    const closingCoins = Number(closingFlowData.coins.replace(',', '.')) || 0;
+    const closingChangeReserve = Number(closingFlowData.changeReserve.replace(',', '.')) || 0;
+    const sangria = Number(closingFlowData.sangria.replace(',', '.')) || 0;
+
+    const initialCash = currentSession.openingBills + currentSession.openingCoins + currentSession.openingChangeReserve;
+    const cashExpenses = recentExpenses
+      .filter(e => e.paymentSource === 'cash_drawer' && e.status === 'paid' && new Date(e.createdAt).toDateString() === new Date().toDateString())
+      .reduce((acc, e) => acc + e.amount, 0);
+
+    const expectedCash = initialCash + cashSales - sangria - cashExpenses;
+    const actualCash = closingBills + closingCoins + closingChangeReserve;
+    const discrepancy = actualCash - expectedCash;
+
+    try {
+      await closeSessionHook(currentSession.id, {
+        closedBy: auth.currentUser?.uid || '',
+        closingBills,
+        closingCoins,
+        closingChangeReserve,
+        sangria,
+        cashSales,
+        pix,
+        credit,
+        debit,
+        totalReported,
+        discrepancy
+      });
+      
+      // Also add to legacy closings for compatibility
+      await addClosingHook({
+        date: currentSession.date,
+        pix,
+        credit,
+        debit,
+        cash: cashSales,
+        total: totalReported,
+        createdBy: auth.currentUser?.uid || ''
+      });
+
+      setClosingFlowData({ 
+        bills: '', coins: '', changeReserve: '', sangria: '', 
+        cashSales: '', pix: '', credit: '', debit: '' 
+      });
+      showNotification('Caixa fechado com sucesso!');
+    } catch (error) {
+      console.error("Error closing cash session:", error);
+      showNotification('Erro ao fechar o caixa.');
+    }
+  };
+
+  const submitExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expenseData.description.trim() || !expenseData.amount || !expenseData.dueDate) {
+      showNotification('Preencha descrição, valor e vencimento.');
+      return;
+    }
+    try {
+      await addExpenseHook({
+        description: expenseData.description,
+        amount: Number(expenseData.amount.replace(',', '.')) || 0,
+        dueDate: expenseData.dueDate,
+        category: expenseData.category,
+        notes: expenseData.notes,
+        paymentSource: expenseData.paymentSource,
+        isRecurring: expenseData.isRecurring,
+        status: 'pending',
+        createdBy: auth.currentUser?.uid || ''
+      });
+      setExpenseData({ 
+        description: '', 
+        amount: '', 
+        dueDate: '', 
+        category: '',
+        notes: '', 
+        paymentSource: 'cash_drawer',
+        isRecurring: false
+      });
+      showNotification('Despesa lançada com sucesso!');
+    } catch (error) {
+      console.error("Error adding expense:", error);
+      showNotification('Erro ao lançar despesa.');
+    }
+  };
+
+  const submitClosing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const pix = Number(closingData.pix.replace(',', '.')) || 0;
+    const credit = Number(closingData.credit.replace(',', '.')) || 0;
+    const debit = Number(closingData.debit.replace(',', '.')) || 0;
+    const cash = Number(closingData.cash.replace(',', '.')) || 0;
+    const total = pix + credit + debit + cash;
+
+    if (total === 0) {
+      showNotification('Preencha pelo menos um valor para o fechamento.');
+      return;
+    }
+
+    try {
+      await addClosingHook({
+        date: new Date().toISOString().split('T')[0],
+        pix,
+        credit,
+        debit,
+        cash,
+        total,
+        createdBy: auth.currentUser?.uid || ''
+      });
+      setClosingData({ pix: '', credit: '', debit: '', cash: '' });
+      showNotification('Fechamento enviado com sucesso!');
+    } catch (error) {
+      console.error("Error adding closing:", error);
+      showNotification('Erro ao enviar fechamento.');
+    }
+  };
+
   const filteredItems = useMemo(() => {
-    return items.filter((item: any) => 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [items, searchTerm]);
+    return items.filter((item: any) => {
+      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [items, searchTerm, selectedCategory]);
+
+  const categories = useMemo(() => {
+    const cats = new Set(items.map((i: any) => i.category).filter(Boolean));
+    return ['all', ...Array.from(cats)];
+  }, [items]);
 
   const totalItems = items.reduce((acc: number, item: any) => acc + (Number(item.quantity) || 0), 0);
   const totalValue = items.reduce((acc: number, item: any) => acc + ((Number(item.quantity) || 0) * Number(item.price)), 0);
@@ -311,86 +519,113 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-body pb-20 md:pb-10">
-      <header className="sticky top-0 z-50 flex justify-between items-center px-4 md:px-8 h-20 w-full max-w-screen-2xl mx-auto bg-background border-b border-opacity-15 border-slate-400">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center">
-            {onBack && (
-              <button onClick={onBack} className="mr-4 text-on-surface-variant hover:text-primary transition-colors">
-                <ArrowLeft size={24} />
-              </button>
-            )}
-            <img alt="Maria Bonita Açaíteria Logo" className="h-12 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ADBb0ugahC1qQy_pxsF4PbcE4DJXxxMGVV8PKznIL5Ruw0I-qbwo-A8IGWq7jYcAFB0tRIKaG5d8A0lcGHXaGpRa1MsxjE_TwIIh4VSViRBmxtn_4JHiVp2lyhJRmbE79N6KcqU7XRvsHIeSHmwQWGnDLGO-7J052QwUBudgkZ0UzwR5GHCSZUYtz0tTTr0FQWB-_nrdqCTqVqA-OYS54GfwFRLiAHJrgUTeoZ0WqpZ9kSED-OgVbu3HAfrH6D6J1uRaq1nYoNlVD95XMEk"/>
-          </div>
-          <nav className="hidden md:flex gap-6 items-center">
-            <button onClick={() => setActiveTab('inventory')} className={`font-headline font-bold text-sm tracking-tight pb-1 transition-transform active:scale-95 ${activeTab === 'inventory' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-primary'}`}>Inventário</button>
-            <button onClick={() => setActiveTab('analysis')} className={`font-headline font-bold text-sm tracking-tight pb-1 transition-transform active:scale-95 ${activeTab === 'analysis' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-primary'}`}>Análise Inteligente</button>
-          </nav>
-        </div>
-        <div className="flex items-center gap-6">
-          <div className="relative hidden sm:block">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
-            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-surface-container-high border-none rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-2 focus:ring-primary w-64 outline-none" placeholder="Buscar no estoque..." type="text"/>
+      <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-outline-variant">
+        <div className="flex justify-between items-center px-4 md:px-8 h-20 w-full max-w-screen-2xl mx-auto">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center">
+              {onBack && (
+                <button onClick={onBack} className="mr-4 p-2.5 rounded-xl bg-surface-container-low text-on-surface-variant hover:text-primary hover:bg-primary-container transition-all active:scale-95">
+                  <ArrowLeft size={20} />
+                </button>
+              )}
+              <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-primary to-secondary rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                <img alt="Maria Bonita Açaíteria Logo" className="relative h-12 w-auto object-contain rounded-full" src="https://drive.google.com/uc?export=view&id=1S9fEzFPkZK76y6kAzFRoRXTDaU2jeDwe" referrerPolicy="no-referrer" />
+              </div>
+            </div>
+            <nav className="hidden md:flex p-1.5 bg-surface-container-low rounded-2xl border border-outline-variant">
+              <button onClick={() => setActiveTab('inventory')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Estoque</button>
+              <button onClick={() => setActiveTab('analysis')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Inteligência</button>
+              <button onClick={() => setActiveTab('finance')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Financeiro</button>
+            </nav>
           </div>
           <div className="flex items-center gap-4">
-            <button className="text-on-surface-variant hover:text-primary transition-colors"><Bell size={20} /></button>
-            <button onClick={() => auth.signOut()} title="Sair" className="text-on-surface-variant hover:text-primary transition-colors"><LogOut size={20} /></button>
-            <div className="w-8 h-8 rounded-full overflow-hidden bg-surface-container-highest flex items-center justify-center text-primary font-bold">
+            <div className="flex items-center gap-2">
+              <button className="p-2.5 rounded-xl text-on-surface-variant hover:text-primary hover:bg-primary-container transition-all"><Bell size={20} /></button>
+              <button onClick={() => auth.signOut()} title="Sair" className="p-2.5 rounded-xl text-on-surface-variant hover:text-error hover:bg-error-container transition-all"><LogOut size={20} /></button>
+            </div>
+            <div className="w-10 h-10 rounded-2xl bg-primary text-on-primary flex items-center justify-center font-headline font-bold shadow-lg shadow-primary/20">
               {auth.currentUser?.email?.[0].toUpperCase() || 'U'}
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-screen-2xl mx-auto px-4 md:px-8 py-10 space-y-10">
-        <section className="flex flex-col md:flex-row justify-between items-end gap-6">
-          <div>
-            <span className="text-primary font-bold tracking-widest text-xs uppercase">Estoque Zap</span>
-            <h2 className="text-4xl font-extrabold font-headline tracking-tight mt-1">{storeName}</h2>
+      <main className="max-w-screen-2xl mx-auto px-4 md:px-8 py-10 space-y-12">
+        <section className="flex flex-col md:flex-row justify-between items-center gap-8 bg-surface-container-lowest p-8 rounded-[2.5rem] border border-outline-variant shadow-sm">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-primary rounded-3xl flex items-center justify-center text-on-primary shadow-xl shadow-primary/30 rotate-3">
+              <Package size={32} />
+            </div>
+            <div>
+              <span className="text-primary font-bold tracking-[0.2em] text-[10px] uppercase">Controle de Unidade</span>
+              <h2 className="text-4xl font-bold font-headline tracking-tight text-on-surface mt-1">{storeName}</h2>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <button onClick={openOrderModal} className="flex items-center gap-2 px-5 py-2.5 bg-surface-container-lowest text-primary font-semibold rounded-lg shadow-sm border border-outline-variant hover:bg-surface-container transition-all active:scale-95">
-              <ClipboardCheck size={20} />
-              Gerar Pedido
-            </button>
-            <button onClick={() => setActiveTab(activeTab === 'inventory' ? 'analysis' : 'inventory')} className="md:hidden flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary font-semibold rounded-lg shadow-md hover:opacity-90 transition-all active:scale-95">
-              <AlertTriangle size={20} />
-              {activeTab === 'inventory' ? 'Análise' : 'Inventário'}
-            </button>
+          <div className="flex gap-4 w-full md:w-auto">
+            {activeTab === 'inventory' && (
+              <button onClick={openOrderModal} className="flex-1 md:flex-none flex items-center justify-center gap-3 px-8 py-4 bg-primary text-on-primary font-bold rounded-2xl shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all active:scale-95">
+                <ClipboardCheck size={22} />
+                Gerar Pedido
+              </button>
+            )}
+            <div className="md:hidden flex-1 flex bg-surface-container-low rounded-2xl p-1 border border-outline-variant">
+              <button onClick={() => setActiveTab('inventory')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Inv.</button>
+              <button onClick={() => setActiveTab('analysis')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Análise</button>
+              <button onClick={() => setActiveTab('finance')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Caixa</button>
+            </div>
           </div>
         </section>
 
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-primary group hover:bg-primary-container transition-colors duration-300 shadow-sm">
-            <div className="flex justify-between items-start">
-              <Package size={32} className="text-primary" />
-              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Volume Total</span>
+        {activeTab === 'inventory' && (
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-surface-container-lowest p-8 rounded-2xl flex flex-col justify-between border border-outline-variant group hover:border-primary transition-all duration-300 shadow-sm hover:shadow-md">
+              <div className="flex justify-between items-start">
+                <div className="p-3 bg-primary-container rounded-xl text-primary">
+                  <Package size={24} />
+                </div>
+                <span className="text-on-surface-variant text-[10px] font-bold font-label tracking-[0.2em] uppercase">Volume Total</span>
+              </div>
+              <div className="mt-8">
+                <div className="text-5xl font-headline font-bold text-on-surface tracking-tighter">{totalItems.toFixed(2).replace('.00', '')}</div>
+                <div className="text-xs text-on-surface-variant mt-2 font-medium flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div>
+                  Insumos Ativos
+                </div>
+              </div>
             </div>
-            <div className="mt-8">
-              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{totalItems.toFixed(2).replace('.00', '')}</div>
-              <div className="text-sm text-on-surface-variant mt-1 font-medium">Insumos Ativos</div>
+            <div className="bg-surface-container-lowest p-8 rounded-2xl flex flex-col justify-between border border-outline-variant group hover:border-secondary transition-all duration-300 shadow-sm hover:shadow-md">
+              <div className="flex justify-between items-start">
+                <div className="p-3 bg-secondary-container rounded-xl text-on-secondary-container">
+                  <DollarSign size={24} />
+                </div>
+                <span className="text-on-surface-variant text-[10px] font-bold font-label tracking-[0.2em] uppercase">Ativo Corrente</span>
+              </div>
+              <div className="mt-8">
+                <div className="text-5xl font-headline font-bold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}</div>
+                <div className="text-xs text-on-surface-variant mt-2 font-medium flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-secondary"></div>
+                  Valor em Estoque
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-on-secondary-container group hover:bg-secondary-container transition-colors duration-300 shadow-sm">
-            <div className="flex justify-between items-start">
-              <DollarSign size={32} className="text-on-secondary-container" />
-              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Ativo Corrente</span>
+            <div className="bg-surface-container-lowest p-8 rounded-2xl flex flex-col justify-between border border-outline-variant group hover:border-error transition-all duration-300 shadow-sm hover:shadow-md">
+              <div className="flex justify-between items-start">
+                <div className="p-3 bg-error-container rounded-xl text-error">
+                  <Trash2 size={24} />
+                </div>
+                <span className="text-on-surface-variant text-[10px] font-bold font-label tracking-[0.2em] uppercase">Perda Operacional</span>
+              </div>
+              <div className="mt-8">
+                <div className="text-5xl font-headline font-bold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalWasteValue)}</div>
+                <div className="text-xs text-on-surface-variant mt-2 font-medium flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-error"></div>
+                  Prejuízo (Descarte)
+                </div>
+              </div>
             </div>
-            <div className="mt-8">
-              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalValue)}</div>
-              <div className="text-sm text-on-surface-variant mt-1 font-medium">Valor em Estoque</div>
-            </div>
-          </div>
-          <div className="bg-surface-container-lowest p-8 rounded-xl flex flex-col justify-between border-l-4 border-error group hover:bg-error-container transition-colors duration-300 shadow-sm">
-            <div className="flex justify-between items-start">
-              <Trash2 size={32} className="text-error" />
-              <span className="text-on-surface-variant text-xs font-bold font-label tracking-widest uppercase">Perda Operacional</span>
-            </div>
-            <div className="mt-8">
-              <div className="text-5xl font-headline font-extrabold text-on-surface tracking-tighter">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalWasteValue)}</div>
-              <div className="text-sm text-on-surface-variant mt-1 font-medium">Prejuízo (Descarte)</div>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {activeTab === 'inventory' ? (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
@@ -403,21 +638,34 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 <form onSubmit={addItem} className="space-y-5">
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Nome do Produto</label>
-                    <input name="name" value={formData.name} onChange={handleInputChange} className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 transition-colors outline-none" placeholder="Ex: Polpa de Açaí 10L" type="text"/>
+                    <input name="name" value={formData.name} onChange={handleInputChange} className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 transition-colors outline-none" placeholder="Ex: Polpa de Açaí 10L" type="text" required/>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Categoria</label>
+                    <input name="category" value={formData.category} onChange={handleInputChange} list="categories-list" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="Ex: Insumos, Embalagens" type="text"/>
+                    <datalist id="categories-list">
+                      {categories.filter(c => c !== 'all').map(c => <option key={c} value={c} />)}
+                    </datalist>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Qtd Inicial</label>
-                      <input name="quantity" value={formData.quantity} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0" type="number"/>
+                      <input name="quantity" value={formData.quantity} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0" type="number" required/>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Preço Unit.</label>
-                      <input name="price" value={formData.price} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0.00" type="number"/>
+                      <input name="price" value={formData.price} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0.00" type="number" required/>
                     </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Consumo Diário Estimado</label>
-                    <input name="dailyConsumption" value={formData.dailyConsumption} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="Média de saídas por dia" type="number"/>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Consumo Diário</label>
+                      <input name="dailyConsumption" value={formData.dailyConsumption} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0.00" type="number"/>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold font-label text-on-surface-variant uppercase tracking-wider ml-1">Estoque Mín.</label>
+                      <input name="minQuantity" value={formData.minQuantity} onChange={handleInputChange} step="0.01" min="0" className="w-full bg-surface-container-highest border-b-2 border-outline-variant focus:border-primary border-t-0 border-x-0 rounded-t-lg px-4 py-3 text-sm focus:ring-0 outline-none" placeholder="0.00" type="number"/>
+                    </div>
                   </div>
                   <button type="submit" className="w-full bg-primary text-on-primary font-bold py-4 rounded-lg mt-4 shadow-lg hover:brightness-110 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
                     <Plus size={20} />
@@ -426,7 +674,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 </form>
               </div>
               <div className="relative h-64 rounded-xl overflow-hidden group hidden md:block">
-                <img alt="Organization" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwX3OCZ8HWNi19lARoD2ylGhHqkTMdtfdQdaHacq5FG56YDxCdMuzIAqDdo-4pQ3wV85Fptj8wYX6l04-2a_KJxB7kjg58HWJ9nFKE2oFX11hpRrOPR9NGpcr2jisBeaaTvqXFsGQ2Vc67AI93WbIt6iPYxS7ibd6OqeouWjg8jhBbWxuNyCBS735AEXs716DYHVJLEdZj0ISg40pv7d6QyewEO7KPrmWhyKdZPz3iv2MJUGTTKUCBlM--r8jvh7wrWFSpTI0ZyiY5"/>
+                <img alt="Organization" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=800&auto=format&fit=crop" referrerPolicy="no-referrer" />
                 <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/20 to-transparent flex flex-col justify-end p-6">
                   <p className="text-white font-headline font-bold text-lg">Otimização Maria Bonita</p>
                   <p className="text-white/70 text-xs">Controle de validade e desperdício de insumos em tempo real.</p>
@@ -437,12 +685,36 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
             <section className="xl:col-span-8 space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
                 <h3 className="text-2xl font-headline font-extrabold tracking-tight">Itens em Estoque</h3>
-                <div className="flex gap-2">
-                  <button onClick={shareViaWhatsApp} title="Exportar/Compartilhar" className="p-2 text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors"><Download size={20} /></button>
-                  <button onClick={() => setIsResetModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-error-container/20 text-error font-bold rounded-lg hover:bg-error-container/30 transition-colors text-sm">
-                    <RefreshCw size={18} />
-                    Zerar Tudo
-                  </button>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="flex gap-2">
+                    <select 
+                      value={selectedCategory} 
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="bg-surface-container-high border border-outline-variant/50 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                    >
+                      <option value="all">Todas Categorias</option>
+                      {categories.filter(c => c !== 'all').map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="relative flex-1 sm:w-64">
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
+                    <input 
+                      value={searchTerm} 
+                      onChange={(e) => setSearchTerm(e.target.value)} 
+                      className="w-full bg-surface-container-high border border-outline-variant/50 rounded-full pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all" 
+                      placeholder="Pesquisar produto..." 
+                      type="text"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={shareViaWhatsApp} title="Exportar/Compartilhar" className="p-2 text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors"><Download size={20} /></button>
+                    <button onClick={() => setIsResetModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-error-container/20 text-error font-bold rounded-lg hover:bg-error-container/30 transition-colors text-sm">
+                      <RefreshCw size={18} />
+                      Zerar Tudo
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -456,19 +728,45 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                   ) : (
                     filteredItems.map((item: any) => {
                       const consumption = Number(item.dailyConsumption) > 0 ? Number(item.dailyConsumption) : Number(item.autoDailyConsumption || 0);
-                      const isLowStock = consumption > 0 && (Number(item.quantity) || 0) < (consumption * 2);
-                      const isHighConsumption = consumption > 5;
                       
                       return (
                         <motion.div key={item.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-surface-container-lowest p-6 rounded-xl flex flex-col lg:flex-row items-center gap-6 lg:gap-8 border border-transparent transition-shadow hover:shadow-xl hover:shadow-purple-100/50 hover:border-primary/10">
                           {editingId === item.id ? (
-                            <div className="flex-1 w-full flex flex-col sm:flex-row gap-3">
-                              <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="flex-1 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" />
-                              <input type="number" step="0.01" value={editFormData.price} onChange={(e) => setEditFormData({...editFormData, price: e.target.value})} className="w-24 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" placeholder="Preço" />
-                              <input type="number" step="0.01" value={editFormData.dailyConsumption} onChange={(e) => setEditFormData({...editFormData, dailyConsumption: e.target.value})} className="w-24 p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none" placeholder="Consumo" />
-                              <div className="flex gap-2">
-                                <button onClick={() => saveEditing(item.id)} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle size={20} /></button>
-                                <button onClick={() => setEditingId(null)} className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"><X size={20} /></button>
+                            <div className="flex-1 w-full flex flex-col gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Nome do Produto</label>
+                                  <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({...editFormData, name: e.target.value})} className="w-full p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Categoria</label>
+                                  <input type="text" list="categories" value={editFormData.category} onChange={(e) => setEditFormData({...editFormData, category: e.target.value})} className="w-full p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" placeholder="Ex: Insumos, Embalagens" />
+                                  <datalist id="categories">
+                                    {categories.filter(c => c !== 'all').map(c => <option key={c} value={c} />)}
+                                  </datalist>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Preço (R$)</label>
+                                  <input type="number" step="0.01" value={editFormData.price} onChange={(e) => setEditFormData({...editFormData, price: e.target.value})} className="w-full p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Consumo Médio</label>
+                                  <input type="number" step="0.01" value={editFormData.dailyConsumption} onChange={(e) => setEditFormData({...editFormData, dailyConsumption: e.target.value})} className="w-full p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Estoque Mínimo</label>
+                                  <input type="number" step="0.01" value={editFormData.minQuantity} onChange={(e) => setEditFormData({...editFormData, minQuantity: e.target.value})} className="w-full p-2 border border-outline-variant rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" />
+                                </div>
+                              </div>
+                              <div className="flex gap-2 justify-end">
+                                <button onClick={() => saveEditing(item.id)} className="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-lg hover:brightness-110 transition-all text-sm font-bold">
+                                  <CheckCircle size={18} /> Salvar
+                                </button>
+                                <button onClick={() => setEditingId(null)} className="flex items-center gap-2 px-4 py-2 bg-surface-container-highest text-on-surface-variant rounded-lg hover:bg-surface-container transition-all text-sm font-bold">
+                                  <X size={18} /> Cancelar
+                                </button>
                               </div>
                             </div>
                           ) : (
@@ -476,17 +774,23 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                               <div className="flex-1 w-full min-w-0">
                                 <div className="flex items-center gap-3 mb-1">
                                   <h4 className="text-lg font-bold truncate">{item.name}</h4>
-                                  {isLowStock ? (
-                                    <span className="bg-error-container text-on-error-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Estoque Baixo</span>
-                                  ) : isHighConsumption ? (
-                                    <span className="bg-primary-container text-on-primary-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Em Alta</span>
+                                  {item.category && (
+                                    <span className="bg-surface-container-highest text-on-surface-variant text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider">{item.category}</span>
+                                  )}
+                                  {(Number(item.quantity) || 0) <= (Number(item.minQuantity) || 0) ? (
+                                    <span className="bg-error text-on-error text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap flex items-center gap-1">
+                                      <AlertTriangle size={10} /> Crítico
+                                    </span>
+                                  ) : (Number(item.quantity) || 0) <= (Number(item.minQuantity) || 0) * 1.5 ? (
+                                    <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Atenção</span>
                                   ) : (
-                                    <span className="bg-secondary-container text-on-secondary-container text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">Estável</span>
+                                    <span className="bg-green-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter whitespace-nowrap">OK</span>
                                   )}
                                 </div>
                                 <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-on-surface-variant font-medium">
                                   <span className="flex items-center gap-1"><TrendingUp size={14} /> Consumo: {consumption.toFixed(2)}/dia</span>
                                   <span className="flex items-center gap-1"><Tag size={14} /> Preço: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.price)}</span>
+                                  {item.minQuantity > 0 && <span className="flex items-center gap-1 text-error/80"><AlertTriangle size={14} /> Mínimo: {item.minQuantity}</span>}
                                 </div>
                               </div>
                               <div className="flex items-center gap-6 lg:gap-12 shrink-0 w-full lg:w-auto justify-between lg:justify-end">
@@ -533,7 +837,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               </div>
             </section>
           </div>
-        ) : (
+        ) : activeTab === 'analysis' ? (
           <section className="flex flex-col gap-6">
             {/* Dashboard Visual */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -652,7 +956,276 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               </div>
             </div>
           </section>
-        )}
+        ) : activeTab === 'finance' ? (
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            {/* Lançar Despesa */}
+            <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
+              <h3 className="text-2xl font-headline font-bold tracking-tight mb-2 flex items-center gap-3">
+                <div className="p-3 bg-error-container text-error rounded-2xl"><MinusCircle size={24} /></div>
+                Lançar Despesa
+              </h3>
+              <p className="text-sm text-on-surface-variant mb-8 font-medium">Registre contas a pagar, compras de insumos ou pagamentos de fornecedores.</p>
+              
+              <form onSubmit={submitExpense} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Descrição</label>
+                  <input name="description" value={expenseData.description} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="Ex: Compra de Gelo, Conta de Luz" type="text" required/>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Valor (R$)</label>
+                    <input name="amount" value={expenseData.amount} onChange={handleExpenseChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Vencimento</label>
+                    <input name="dueDate" value={expenseData.dueDate} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" type="date" required/>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Categoria</label>
+                    <select name="category" value={expenseData.category} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" required>
+                      <option value="" disabled>Selecione...</option>
+                      <option value="Fornecedores">Fornecedores</option>
+                      <option value="Contas Fixas">Contas Fixas (Água, Luz, Net)</option>
+                      <option value="Salários">Salários / Diárias</option>
+                      <option value="Manutenção">Manutenção</option>
+                      <option value="Impostos">Impostos / Taxas</option>
+                      <option value="Outros">Outros</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Origem do Pagamento</label>
+                    <select name="paymentSource" value={expenseData.paymentSource} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all">
+                      <option value="cash_drawer">Caixa da Loja (Gaveta)</option>
+                      <option value="external">Externo / Geral (Empresa)</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 bg-surface-container-low p-4 rounded-2xl border border-outline-variant">
+                  <input 
+                    type="checkbox" 
+                    id="isRecurring" 
+                    name="isRecurring" 
+                    checked={expenseData.isRecurring} 
+                    onChange={handleExpenseChange}
+                    className="w-5 h-5 rounded border-outline-variant text-primary focus:ring-primary"
+                  />
+                  <label htmlFor="isRecurring" className="text-sm font-bold text-on-surface-variant cursor-pointer">Despesa Recorrente (Mensal)</label>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Observações (Opcional)</label>
+                  <textarea name="notes" value={expenseData.notes} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all resize-none" placeholder="Detalhes adicionais..." rows={2}></textarea>
+                </div>
+                <button type="submit" className="w-full bg-error hover:bg-error/90 text-on-error font-bold py-4 rounded-2xl mt-2 shadow-lg shadow-error/20 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                  <Plus size={20} />
+                  Registrar Despesa
+                </button>
+              </form>
+
+              {/* Histórico Recente de Despesas */}
+              {recentExpenses.length > 0 && (
+                <div className="mt-8 pt-6 border-t border-outline-variant/30">
+                  <h4 className="text-sm font-bold text-on-surface-variant mb-4 uppercase tracking-wider">Lançamentos Recentes</h4>
+                  <div className="space-y-3">
+                    {recentExpenses.map(exp => (
+                      <div key={exp.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-2xl border border-outline-variant/20">
+                        <div>
+                          <p className="font-headline font-bold text-sm text-on-surface">{exp.description}</p>
+                          <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Venc: {new Date(exp.dueDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-headline font-bold text-error">{formatCurrency(exp.amount)}</p>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${exp.status === 'pending' ? 'bg-amber-100 text-amber-800' : exp.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                            {exp.status === 'pending' ? 'Pendente' : exp.status === 'paid' ? 'Pago' : 'Cancelado'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Controle de Fluxo de Caixa (Abertura/Fechamento) */}
+            <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
+              {!currentSession ? (
+                <>
+                  <h3 className="text-2xl font-headline font-bold tracking-tight mb-2 flex items-center gap-3">
+                    <div className="p-3 bg-primary-container text-primary rounded-2xl"><CheckCircle size={24} /></div>
+                    Abertura de Caixa
+                  </h3>
+                  <p className="text-sm text-on-surface-variant mb-8 font-medium">Informe os valores iniciais para começar o turno.</p>
+                  
+                  <form onSubmit={openCashSession} className="space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1 flex items-center gap-1">Cédulas (R$)</label>
+                        <input name="bills" value={openingData.bills} onChange={handleOpeningFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1 flex items-center gap-1">Moedas (R$)</label>
+                        <input name="coins" value={openingData.coins} onChange={handleOpeningFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1 flex items-center gap-1">Reserva de Troco / Caixa 2 (R$)</label>
+                      <input name="changeReserve" value={openingData.changeReserve} onChange={handleOpeningFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                    </div>
+                    
+                    <button type="submit" className="w-full bg-primary hover:bg-primary/90 text-on-primary font-bold py-4 rounded-2xl mt-2 shadow-lg shadow-primary/20 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                      <Check size={20} />
+                      Abrir Caixa
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-2xl font-headline font-bold tracking-tight mb-2 flex items-center gap-3">
+                    <div className="p-3 bg-secondary-container text-on-secondary-container rounded-2xl"><DollarSign size={24} /></div>
+                    Fechamento de Caixa
+                  </h3>
+                  <div className="mb-8 p-5 bg-surface-container-low rounded-2xl border border-outline-variant flex justify-between items-center">
+                    <div>
+                      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Caixa Aberto em:</p>
+                      <p className="text-sm font-bold text-on-surface">{new Date(currentSession.openedAt).toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-1">Abertura Total:</p>
+                      <p className="text-sm font-bold text-primary">{formatCurrency(currentSession.openingBills + currentSession.openingCoins + currentSession.openingChangeReserve)}</p>
+                    </div>
+                  </div>
+                  
+                  <form onSubmit={closeCashSession} className="space-y-8">
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest border-b border-outline-variant pb-2">Valores em Dinheiro (Físico)</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Cédulas no Fim</label>
+                          <input name="bills" value={closingFlowData.bills} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Moedas no Fim</label>
+                          <input name="coins" value={closingFlowData.coins} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Sangria (Retirada)</label>
+                          <input name="sangria" value={closingFlowData.sangria} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Reserva Troco Final</label>
+                          <input name="changeReserve" value={closingFlowData.changeReserve} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest border-b border-outline-variant pb-2">Vendas do Dia (Relatório do Sistema)</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Vendas Dinheiro</label>
+                          <input name="cashSales" value={closingFlowData.cashSales} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Total PIX</label>
+                          <input name="pix" value={closingFlowData.pix} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Cartão Crédito</label>
+                          <input name="credit" value={closingFlowData.credit} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest ml-1">Cartão Débito</label>
+                          <input name="debit" value={closingFlowData.debit} onChange={handleClosingFlowChange} step="0.01" min="0" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" placeholder="0.00" type="number" required/>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {(() => {
+                      const initialCash = currentSession.openingBills + currentSession.openingCoins + currentSession.openingChangeReserve;
+                      const cashSales = Number(closingFlowData.cashSales) || 0;
+                      const sangria = Number(closingFlowData.sangria) || 0;
+                      
+                      // Despesas pagas em dinheiro do caixa hoje
+                      const cashExpenses = recentExpenses
+                        .filter(e => e.paymentSource === 'cash_drawer' && e.status === 'paid' && new Date(e.createdAt).toDateString() === new Date().toDateString())
+                        .reduce((acc, e) => acc + e.amount, 0);
+
+                      const expectedCash = initialCash + cashSales - sangria - cashExpenses;
+                      const actualCash = (Number(closingFlowData.bills) || 0) + (Number(closingFlowData.coins) || 0) + (Number(closingFlowData.changeReserve) || 0);
+                      const discrepancy = actualCash - expectedCash;
+                      
+                      return (
+                        <div className="mt-6 space-y-4">
+                          <div className="p-5 bg-surface-container-low rounded-2xl border border-outline-variant flex justify-between items-center">
+                            <div>
+                              <span className="font-bold text-on-surface-variant text-sm">Faturamento Total:</span>
+                              <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Dinheiro + Cartões + PIX</p>
+                            </div>
+                            <span className="text-2xl font-headline font-bold text-primary">
+                              {formatCurrency(
+                                (Number(closingFlowData.pix) || 0) + 
+                                (Number(closingFlowData.credit) || 0) + 
+                                (Number(closingFlowData.debit) || 0) + 
+                                cashSales
+                              )}
+                            </span>
+                          </div>
+
+                          {(closingFlowData.bills || closingFlowData.coins || closingFlowData.changeReserve) ? (
+                            <div className={`p-5 rounded-2xl border flex justify-between items-center ${discrepancy === 0 ? 'bg-green-50 border-green-200' : discrepancy > 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
+                              <div>
+                                <span className={`font-bold text-sm ${discrepancy === 0 ? 'text-green-800' : discrepancy > 0 ? 'text-blue-800' : 'text-red-800'}`}>
+                                  {discrepancy === 0 ? 'Caixa Batido (Sem Diferença)' : discrepancy > 0 ? 'Sobra de Caixa' : 'Quebra de Caixa (Falta)'}
+                                </span>
+                                <p className={`text-[10px] uppercase tracking-widest mt-1 ${discrepancy === 0 ? 'text-green-600' : discrepancy > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                                  Esperado: {formatCurrency(expectedCash)}
+                                </p>
+                              </div>
+                              <span className={`text-2xl font-headline font-bold ${discrepancy === 0 ? 'text-green-700' : discrepancy > 0 ? 'text-blue-700' : 'text-red-700'}`}>
+                                {discrepancy > 0 ? '+' : ''}{formatCurrency(discrepancy)}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+
+                    <button type="submit" className="w-full bg-primary hover:bg-primary/90 text-on-primary font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all flex justify-center items-center gap-2">
+                      <Send size={20} />
+                      Finalizar e Enviar Fechamento
+                    </button>
+                  </form>
+                </>
+              )}
+
+              {/* Histórico Recente de Fechamentos */}
+              {recentClosings.length > 0 && (
+                <div className="mt-8 pt-6 border-t border-outline-variant/30">
+                  <h4 className="text-sm font-bold text-on-surface-variant mb-4 uppercase tracking-wider">Fechamentos Recentes</h4>
+                  <div className="space-y-3">
+                    {recentClosings.map(closing => (
+                      <div key={closing.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-2xl border border-outline-variant/20">
+                        <div>
+                          <p className="font-headline font-bold text-sm text-on-surface">Data: {new Date(closing.date || closing.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
+                          <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Pix: {formatCurrency(closing.pix)} | Din: {formatCurrency(closing.cash)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-headline font-bold text-primary">{formatCurrency(closing.total)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : null}
       </main>
 
       <div className="fixed bottom-6 right-6 md:bottom-10 md:right-10 z-40">
@@ -745,6 +1318,14 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
           <motion.div initial={{ opacity: 0, y: -20, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: -20, x: '-50%' }} className="fixed top-6 left-1/2 bg-inverse-surface text-inverse-on-surface px-6 py-3 rounded-full shadow-xl border border-outline-variant z-50 flex items-center gap-2">
             {notification.includes('sucesso') && <CheckCircle size={18} className="text-green-400" />}
             {notification}
+          </motion.div>
+        )}
+        {isAnyLoading && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] bg-background/60 backdrop-blur-sm flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <RefreshCw size={48} className="text-primary animate-spin" />
+              <p className="text-primary font-bold animate-pulse">Carregando dados...</p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

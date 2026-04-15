@@ -1,10 +1,10 @@
 import type {Metadata} from 'next';
-import { Manrope, Inter } from 'next/font/google';
+import { Space_Grotesk, Inter } from 'next/font/google';
 import './globals.css'; // Global styles
 
-const manrope = Manrope({
+const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
-  variable: '--font-manrope',
+  variable: '--font-space',
 });
 
 const inter = Inter({
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning className={`${manrope.variable} ${inter.variable}`}>
+    <html lang="pt-BR" suppressHydrationWarning className={`${spaceGrotesk.variable} ${inter.variable}`}>
       <body suppressHydrationWarning className="font-body bg-background text-on-surface">{children}</body>
     </html>
   );
