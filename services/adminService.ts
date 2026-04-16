@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, orderBy, addDoc, doc, writeBatch, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, doc, writeBatch, getDocs, deleteDoc, updateDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Store, User, Expense, Closing, CashSession } from '../types';
 
@@ -15,21 +15,21 @@ export const subscribeToAllUsers = (onData: (users: User[]) => void) => {
 };
 
 export const subscribeToStoreExpenses = (storeId: string, storeName: string, onData: (expenses: any[]) => void) => {
-  const expensesRef = query(collection(db, `stores/${storeId}/expenses`), orderBy('createdAt', 'desc'));
+  const expensesRef = query(collection(db, `stores/${storeId}/expenses`), orderBy('createdAt', 'desc'), limit(100));
   return onSnapshot(expensesRef, (snapshot) => {
     onData(snapshot.docs.map(doc => ({ id: doc.id, storeId, storeName, ...doc.data() })));
   });
 };
 
 export const subscribeToStoreClosings = (storeId: string, storeName: string, onData: (closings: any[]) => void) => {
-  const closingsRef = query(collection(db, `stores/${storeId}/closings`), orderBy('createdAt', 'desc'));
+  const closingsRef = query(collection(db, `stores/${storeId}/closings`), orderBy('createdAt', 'desc'), limit(100));
   return onSnapshot(closingsRef, (snapshot) => {
     onData(snapshot.docs.map(doc => ({ id: doc.id, storeId, storeName, ...doc.data() })));
   });
 };
 
 export const subscribeToStoreSessions = (storeId: string, storeName: string, onData: (sessions: any[]) => void) => {
-  const sessionsRef = query(collection(db, `stores/${storeId}/cashSessions`), orderBy('openedAt', 'desc'));
+  const sessionsRef = query(collection(db, `stores/${storeId}/cashSessions`), orderBy('openedAt', 'desc'), limit(100));
   return onSnapshot(sessionsRef, (snapshot) => {
     onData(snapshot.docs.map(doc => ({ id: doc.id, storeId, storeName, ...doc.data() })));
   });

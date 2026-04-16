@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
+import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { useFinance } from '../hooks/useFinance';
 import { useInventory } from '../hooks/useInventory';
 import { useCashSession } from '../hooks/useCashSession';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import Image from 'next/image';
+import { InventoryItem } from '../types';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
   const { 
@@ -15,8 +18,22 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     updateItem: updateItemHook, 
     deleteItem: deleteItemHook, 
     resetInventory: resetInventoryHook,
-    confirmTrackingUpdate
+    confirmTrackingUpdate,
+    transferItem
   } = useInventory(storeId);
+  
+  const [stores, setStores] = useState<{id: string, name: string}[]>([]);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferItemData, setTransferItemData] = useState<InventoryItem | null>(null);
+  const [transferFormData, setTransferFormData] = useState({ destStoreId: '', quantity: '' });
+
+  useEffect(() => {
+    const fetchStores = async () => {
+      const snapshot = await getDocs(collection(db, 'stores'));
+      setStores(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
+    };
+    fetchStores();
+  }, []);
   
   const [formData, setFormData] = useState({ 
     name: '', 
@@ -57,7 +74,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     isRecurring: false
   });
   const [closingData, setClosingData] = useState({ pix: '', credit: '', debit: '', cash: '' });
-  const { expenses: recentExpenses, closings: recentClosings, isLoading: isFinanceLoading, addExpense: addExpenseHook, addClosing: addClosingHook, deleteExpense: deleteExpenseHook } = useFinance(storeId, 5);
+  const { expenses: recentExpenses, closings: recentClosings, isLoading: isFinanceLoading, addExpense: addExpenseHook, addClosing: addClosingHook, deleteExpense: deleteExpenseHook, deleteClosing: deleteClosingHook } = useFinance(storeId, 5);
 
   const {
     currentSession,
@@ -230,6 +247,41 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     } catch (error) {
       console.error("Error resetting inventory:", error);
       showNotification('Erro ao zerar inventário.');
+    }
+  };
+
+  const handleTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferItemData || !transferFormData.destStoreId || !transferFormData.quantity) {
+      showNotification('Preencha todos os campos da transferência.');
+      return;
+    }
+
+    const qty = Number(transferFormData.quantity);
+    if (qty <= 0 || qty > transferItemData.quantity) {
+      showNotification('Quantidade inválida para transferência.');
+      return;
+    }
+
+    const destStore = stores.find(s => s.id === transferFormData.destStoreId);
+    if (!destStore) return;
+
+    try {
+      await transferItem(
+        destStore.id,
+        destStore.name,
+        transferItemData,
+        qty,
+        storeName,
+        auth.currentUser?.uid || ''
+      );
+      setIsTransferModalOpen(false);
+      setTransferItemData(null);
+      setTransferFormData({ destStoreId: '', quantity: '' });
+      showNotification('Transferência realizada com sucesso!');
+    } catch (error) {
+      console.error("Error transferring item:", error);
+      showNotification('Erro ao transferir item.');
     }
   };
 
@@ -530,7 +582,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               )}
               <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-primary to-secondary rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
-                <img alt="Maria Bonita Açaíteria Logo" className="relative h-12 w-auto object-contain rounded-full" src="https://drive.google.com/uc?export=view&id=1S9fEzFPkZK76y6kAzFRoRXTDaU2jeDwe" referrerPolicy="no-referrer" />
+                <Image alt="Maria Bonita Açaíteria Logo" className="relative h-12 w-auto object-contain" src="https://drive.google.com/uc?export=view&id=1S9fEzFPkZK76y6kAzFRoRXTDaU2jeDwe" width={120} height={48} referrerPolicy="no-referrer" />
               </div>
             </div>
             <nav className="hidden md:flex p-1.5 bg-surface-container-low rounded-2xl border border-outline-variant">
@@ -674,7 +726,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 </form>
               </div>
               <div className="relative h-64 rounded-xl overflow-hidden group hidden md:block">
-                <img alt="Organization" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=800&auto=format&fit=crop" referrerPolicy="no-referrer" />
+                <Image alt="Organization" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=800&auto=format&fit=crop" fill referrerPolicy="no-referrer" />
                 <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-primary/20 to-transparent flex flex-col justify-end p-6">
                   <p className="text-white font-headline font-bold text-lg">Otimização Maria Bonita</p>
                   <p className="text-white/70 text-xs">Controle de validade e desperdício de insumos em tempo real.</p>
@@ -824,6 +876,12 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                                 </div>
                                 <div className="flex flex-col gap-2">
                                   <button onClick={() => startEditing(item)} className="text-on-surface-variant hover:text-primary transition-colors"><Edit size={18} /></button>
+                                  <button onClick={() => {
+                                    setTransferItemData(item);
+                                    setIsTransferModalOpen(true);
+                                  }} className="text-on-surface-variant hover:text-blue-600 transition-colors" title="Transferir para outra loja">
+                                    <ArrowRightLeft size={18} />
+                                  </button>
                                   <button onClick={() => deleteItem(item.id)} className="text-on-surface-variant hover:text-error transition-colors"><Trash2 size={18} /></button>
                                 </div>
                               </div>
@@ -1037,11 +1095,16 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                           <p className="font-headline font-bold text-sm text-on-surface">{exp.description}</p>
                           <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Venc: {new Date(exp.dueDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end gap-2">
                           <p className="font-headline font-bold text-error">{formatCurrency(exp.amount)}</p>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${exp.status === 'pending' ? 'bg-amber-100 text-amber-800' : exp.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                            {exp.status === 'pending' ? 'Pendente' : exp.status === 'paid' ? 'Pago' : 'Cancelado'}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${exp.status === 'pending' ? 'bg-amber-100 text-amber-800' : exp.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                              {exp.status === 'pending' ? 'Pendente' : exp.status === 'paid' ? 'Pago' : 'Cancelado'}
+                            </span>
+                            <button onClick={() => deleteExpenseHook(exp.id)} className="text-on-surface-variant hover:text-error transition-colors" title="Remover Despesa">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1215,8 +1278,11 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                           <p className="font-headline font-bold text-sm text-on-surface">Data: {new Date(closing.date || closing.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
                           <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Pix: {formatCurrency(closing.pix)} | Din: {formatCurrency(closing.cash)}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end gap-2">
                           <p className="font-headline font-bold text-primary">{formatCurrency(closing.total)}</p>
+                          <button onClick={() => deleteClosingHook(closing.id)} className="text-on-surface-variant hover:text-error transition-colors" title="Remover Fechamento">
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1234,6 +1300,71 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
           <span className="hidden md:block font-medium pr-2 max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 ease-in-out whitespace-nowrap">Partilhar</span>
         </button>
       </div>
+
+      <AnimatePresence>
+        {isTransferModalOpen && transferItemData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-surface-container-lowest rounded-2xl p-6 max-w-md w-full shadow-xl">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3 text-blue-600">
+                  <ArrowRightLeft size={24} />
+                  <h3 className="text-xl font-bold font-headline text-on-surface">Transferir Item</h3>
+                </div>
+                <button onClick={() => setIsTransferModalOpen(false)} className="p-2 text-on-surface-variant hover:bg-surface-container rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              
+              <form onSubmit={handleTransfer} className="space-y-4">
+                <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant">
+                  <p className="font-bold text-on-surface">{transferItemData.name}</p>
+                  <p className="text-sm text-on-surface-variant">Estoque atual: {transferItemData.quantity}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Loja de Destino</label>
+                  <select 
+                    value={transferFormData.destStoreId} 
+                    onChange={(e) => setTransferFormData({...transferFormData, destStoreId: e.target.value})}
+                    className="w-full bg-surface-container-low border border-outline-variant focus:border-blue-500 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                    required
+                  >
+                    <option value="" disabled>Selecione a loja...</option>
+                    {stores.filter(s => s.id !== storeId).map(store => (
+                      <option key={store.id} value={store.id}>{store.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-on-surface-variant uppercase ml-1">Quantidade a Transferir</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    min="0.01"
+                    max={transferItemData.quantity}
+                    value={transferFormData.quantity} 
+                    onChange={(e) => setTransferFormData({...transferFormData, quantity: e.target.value})}
+                    className="w-full bg-surface-container-low border border-outline-variant focus:border-blue-500 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                    placeholder="Ex: 1 ou 0.5"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button type="button" onClick={() => setIsTransferModalOpen(false)} className="flex-1 py-3 px-4 bg-surface-container hover:bg-surface-container-high text-on-surface font-medium rounded-xl transition-colors">
+                    Cancelar
+                  </button>
+                  <button type="submit" className="flex-1 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
+                    <ArrowRightLeft size={18} />
+                    Transferir
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isResetModalOpen && (

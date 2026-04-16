@@ -4,6 +4,7 @@ import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck, Trash
 import { motion, AnimatePresence } from 'motion/react';
 import { useAdmin } from '../hooks/useAdmin';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import ChatMaria from './ChatMaria';
 
 export default function AdminDashboard({ onSelectStore }: { onSelectStore: (storeId: string, storeName: string) => void }) {
   const { 
@@ -27,6 +28,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const [newStoreName, setNewStoreName] = useState('');
   const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance'>('stores');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [financeStoreFilter, setFinanceStoreFilter] = useState<string>('all');
   const [notification, setNotification] = useState<string | null>(null);
   const [storeToDelete, setStoreToDelete] = useState<{id: string, name: string} | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
@@ -129,6 +131,12 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
 
   const allExpenses = useMemo(() => {
     let expenses = Object.values(expensesByStore).flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    if (financeStoreFilter !== 'all') {
+      expenses = expensesByStore[financeStoreFilter] || [];
+      expenses = expenses.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+
     if (dateFilter !== 'all') {
       const now = new Date();
       expenses = expenses.filter(e => {
@@ -144,11 +152,20 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
         return true;
       });
     }
-    return expenses;
-  }, [expensesByStore, dateFilter]);
+    
+    return expenses.map(e => {
+      const store = stores.find(s => s.id === e.storeId);
+      return { ...e, storeName: store ? store.name : 'Desconhecida' };
+    });
+  }, [expensesByStore, dateFilter, financeStoreFilter, stores]);
 
   const allSessions = useMemo(() => {
     let sessions = Object.values(sessionsByStore).flat();
+    
+    if (financeStoreFilter !== 'all') {
+      sessions = sessionsByStore[financeStoreFilter] || [];
+    }
+
     if (dateFilter !== 'all') {
       const now = new Date();
       sessions = sessions.filter(s => {
@@ -165,7 +182,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       });
     }
     return sessions;
-  }, [sessionsByStore, dateFilter]);
+  }, [sessionsByStore, dateFilter, financeStoreFilter]);
 
   const stats = useMemo(() => {
     const revenue = allSessions.reduce((sum, s) => sum + (Number(s.totalReported) || 0), 0);
@@ -180,8 +197,8 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }, { pix: 0, cash: 0, credit: 0, debit: 0 });
 
     const byStore = stores.map(store => {
-      const storeRevenue = (sessionsByStore[store.id] || []).reduce((sum, s) => sum + (Number(s.totalReported) || 0), 0);
-      const storeExpenses = (expensesByStore[store.id] || []).filter(e => e.status === 'paid').reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      const storeRevenue = allSessions.filter(s => s.storeId === store.id).reduce((sum, s) => sum + (Number(s.totalReported) || 0), 0);
+      const storeExpenses = allExpenses.filter(e => e.storeId === store.id && e.status === 'paid').reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
       return {
         name: store.name,
         receita: storeRevenue,
@@ -197,7 +214,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }, {} as Record<string, number>);
 
     return { revenue, expenses, profit: revenue - expenses, byMethod, byStore, expensesByCategory };
-  }, [allExpenses, allSessions, stores, sessionsByStore, expensesByStore]);
+  }, [allExpenses, allSessions, stores]);
 
   const handleAddStore = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -314,8 +331,10 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }
   };
 
-  // Aggregate all expenses
-  const pendingExpenses = allExpenses.filter(e => e.status === 'pending');
+  const pendingExpenses = useMemo(() => {
+    let expenses = allExpenses.filter(e => e.status === 'pending');
+    return expenses.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+  }, [allExpenses]);
   
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -504,31 +523,44 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 <p className="text-on-surface-variant text-sm mt-1">Acompanhamento de todas as unidades</p>
               </div>
               
-              <div className="flex bg-surface-container-low p-1 rounded-xl border border-outline-variant">
-                <button 
-                  onClick={() => setDateFilter('today')}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select
+                  value={financeStoreFilter}
+                  onChange={(e) => setFinanceStoreFilter(e.target.value)}
+                  className="bg-surface-container-low border border-outline-variant text-on-surface text-sm rounded-xl focus:ring-primary focus:border-primary block w-full p-2.5 font-bold"
                 >
-                  Hoje
-                </button>
-                <button 
-                  onClick={() => setDateFilter('week')}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                >
-                  Semana
-                </button>
-                <button 
-                  onClick={() => setDateFilter('month')}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                >
-                  Mês
-                </button>
-                <button 
-                  onClick={() => setDateFilter('all')}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                >
-                  Tudo
-                </button>
+                  <option value="all">Todas as Lojas</option>
+                  {stores.map(store => (
+                    <option key={store.id} value={store.id}>{store.name}</option>
+                  ))}
+                </select>
+
+                <div className="flex bg-surface-container-low p-1 rounded-xl border border-outline-variant">
+                  <button 
+                    onClick={() => setDateFilter('today')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Hoje
+                  </button>
+                  <button 
+                    onClick={() => setDateFilter('week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Semana
+                  </button>
+                  <button 
+                    onClick={() => setDateFilter('month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Mês
+                  </button>
+                  <button 
+                    onClick={() => setDateFilter('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Tudo
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -559,30 +591,32 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className={`grid grid-cols-1 ${financeStoreFilter === 'all' ? 'lg:grid-cols-2' : ''} gap-6`}>
               {/* Gráfico por Loja */}
-              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
-                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                  <BarChart3 size={20} className="text-primary" />
-                  Desempenho por Loja
-                </h3>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={stats.byStore}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                      <RechartsTooltip 
-                        formatter={(value: any) => formatCurrency(Number(value))}
-                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
-                      />
-                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                      <Bar dataKey="receita" name="Receita" fill="#4a148c" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="lucro" name="Lucro" fill="#ff4081" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              {financeStoreFilter === 'all' && (
+                <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
+                  <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
+                    <BarChart3 size={20} className="text-primary" />
+                    Desempenho por Loja
+                  </h3>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={stats.byStore}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                        <RechartsTooltip 
+                          formatter={(value: any) => formatCurrency(Number(value))}
+                          contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                        <Bar dataKey="receita" name="Receita" fill="#4a148c" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="lucro" name="Lucro" fill="#ff4081" radius={[8, 8, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Gráfico de Despesas por Categoria */}
               <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
@@ -618,7 +652,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
 
               {/* Gráfico de Métodos de Pagamento */}
-              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant lg:col-span-2">
+              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilter === 'all' ? 'lg:col-span-2' : ''}`}>
                 <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
                   <PieChartIcon size={20} className="text-primary" />
                   Meios de Pagamento
@@ -809,47 +843,60 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 </h2>
               </div>
               <div className="divide-y divide-outline-variant">
-                {Object.values(closingsByStore).flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).length === 0 ? (
-                  <div className="p-12 text-center text-on-surface-variant">
-                    <p className="font-medium">Nenhum fechamento registrado.</p>
-                  </div>
-                ) : (
-                  Object.values(closingsByStore).flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).map(closing => (
-                    <div key={closing.id} className="p-6 flex justify-between items-center hover:bg-surface-container-low transition-colors">
-                      <div>
-                        <p className="font-headline font-bold text-on-surface flex items-center gap-2">
-                          Fechamento {new Date(closing.createdAt).toLocaleDateString('pt-BR')}
-                          <span className="text-[10px] bg-primary-container text-primary px-2 py-0.5 rounded-md uppercase tracking-widest">{closing.storeName}</span>
-                        </p>
-                        <div className="flex gap-4 text-[10px] text-on-surface-variant uppercase tracking-widest font-bold mt-2">
-                          <span>PIX: {formatCurrency(closing.pix)}</span>
-                          <span>Cartão: {formatCurrency(closing.card)}</span>
+                {(() => {
+                  let closings = Object.values(closingsByStore).flat();
+                  if (financeStoreFilter !== 'all') {
+                    closings = closingsByStore[financeStoreFilter] || [];
+                  }
+                  const sortedClosings = closings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10);
+                  
+                  if (sortedClosings.length === 0) {
+                    return (
+                      <div className="p-12 text-center text-on-surface-variant">
+                        <p className="font-medium">Nenhum fechamento registrado.</p>
+                      </div>
+                    );
+                  }
+
+                  return sortedClosings.map(closing => {
+                    const store = stores.find(s => s.id === closing.storeId);
+                    return (
+                      <div key={closing.id} className="p-6 flex justify-between items-center hover:bg-surface-container-low transition-colors">
+                        <div>
+                          <p className="font-headline font-bold text-on-surface flex items-center gap-2">
+                            Fechamento {new Date(closing.createdAt).toLocaleDateString('pt-BR')}
+                            <span className="text-[10px] bg-primary-container text-primary px-2 py-0.5 rounded-md uppercase tracking-widest">{store ? store.name : 'Desconhecida'}</span>
+                          </p>
+                          <div className="flex gap-4 text-[10px] text-on-surface-variant uppercase tracking-widest font-bold mt-2">
+                            <span>PIX: {formatCurrency(closing.pix)}</span>
+                            <span>Cartão: {formatCurrency((closing.credit || 0) + (closing.debit || 0))}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right">
+                            <p className="font-headline font-bold text-lg text-primary">{formatCurrency(closing.total)}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button 
+                              onClick={() => setEditingClosing({ ...closing })}
+                              className="p-2 text-primary hover:bg-primary-container rounded-xl transition-colors"
+                              title="Editar Fechamento"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button 
+                              onClick={() => deleteClosing(closing.storeId || '', closing.id)}
+                              className="p-2 text-error hover:bg-error-container rounded-xl transition-colors"
+                              title="Excluir Fechamento"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-6">
-                        <div className="text-right">
-                          <p className="font-headline font-bold text-lg text-primary">{formatCurrency(closing.total)}</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => setEditingClosing({ ...closing })}
-                            className="p-2 text-primary hover:bg-primary-container rounded-xl transition-colors"
-                            title="Editar Fechamento"
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button 
-                            onClick={() => deleteClosing(closing.storeId, closing.id)}
-                            className="p-2 text-error hover:bg-error-container rounded-xl transition-colors"
-                            title="Excluir Fechamento"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
+                    );
+                  });
+                })()}
               </div>
             </div>
 
@@ -862,12 +909,22 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 </h2>
               </div>
               <div className="divide-y divide-outline-variant">
-                {Object.values(sessionsByStore).flat().sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()).slice(0, 15).length === 0 ? (
-                  <div className="p-12 text-center text-on-surface-variant">
-                    <p className="font-medium">Nenhum fluxo de caixa registrado.</p>
-                  </div>
-                ) : (
-                  Object.values(sessionsByStore).flat().sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()).slice(0, 15).map(session => {
+                {(() => {
+                  let sessions = Object.values(sessionsByStore).flat();
+                  if (financeStoreFilter !== 'all') {
+                    sessions = sessionsByStore[financeStoreFilter] || [];
+                  }
+                  const sortedSessions = sessions.sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()).slice(0, 15);
+
+                  if (sortedSessions.length === 0) {
+                    return (
+                      <div className="p-12 text-center text-on-surface-variant">
+                        <p className="font-medium">Nenhum fluxo de caixa registrado.</p>
+                      </div>
+                    );
+                  }
+
+                  return sortedSessions.map(session => {
                     const openingCash = (session.openingBills || 0) + (session.openingCoins || 0);
                     const closingCash = (session.closingBills || 0) + (session.closingCoins || 0);
                     const sangria = session.sangria || 0;
@@ -882,6 +939,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                     const expectedCash = openingCash + cashSales - totalExpenses - sangria;
                     const difference = session.discrepancy !== undefined ? session.discrepancy : (closingCash - expectedCash);
                     const isClosed = session.status === 'closed';
+                    const store = stores.find(s => s.id === session.storeId);
 
                     return (
                       <div key={session.id} className="p-6 hover:bg-surface-container-low transition-colors">
@@ -889,7 +947,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                           <div>
                             <div className="flex items-center gap-3 mb-2">
                               <span className="text-[10px] font-bold bg-primary-container text-primary px-2 py-1 rounded-md uppercase tracking-widest">
-                                {session.storeName}
+                                {store ? store.name : 'Desconhecida'}
                               </span>
                               <span className="text-xs font-medium text-on-surface-variant flex items-center gap-1">
                                 <Calendar size={12} />
@@ -960,8 +1018,8 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         )}
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             </div>
           </section>
@@ -1327,6 +1385,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
           </motion.div>
         )}
       </AnimatePresence>
+      <ChatMaria />
     </div>
   );
 }

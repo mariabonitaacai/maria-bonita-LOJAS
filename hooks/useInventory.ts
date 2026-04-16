@@ -79,6 +79,26 @@ export const useInventory = (storeId: string | null) => {
     return updateItem(item.id, updates);
   };
 
+  const transferItem = async (
+    destStoreId: string,
+    destStoreName: string,
+    item: InventoryItem,
+    quantity: number,
+    sourceStoreName: string,
+    userId: string
+  ) => {
+    if (!storeId) throw new Error("Store ID is required");
+    return inventoryService.transferItem(
+      storeId,
+      sourceStoreName,
+      destStoreId,
+      destStoreName,
+      item,
+      quantity,
+      userId
+    );
+  };
+
   return {
     items,
     isLoading,
@@ -87,6 +107,7 @@ export const useInventory = (storeId: string | null) => {
     updateItem,
     deleteItem,
     resetInventory,
-    confirmTrackingUpdate
+    confirmTrackingUpdate,
+    transferItem
   };
 };

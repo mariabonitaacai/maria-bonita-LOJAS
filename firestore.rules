@@ -79,6 +79,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.storeId == storeId;
     }
 
+    function isAnyStoreUser() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'store';
+    }
+
     function hasOnlyAllowedFields(allowedFields) {
       return request.resource.data.keys().hasOnly(allowedFields);
     }
@@ -119,7 +125,7 @@ service cloud.firestore {
     function isValidItem() {
       let data = request.resource.data;
       return hasRequiredFields(['name', 'quantity', 'price', 'waste']) &&
-             hasOnlyAllowedFields(['name', 'quantity', 'price', 'waste', 'minQuantity', 'category', 'dailyConsumption', 'lastCountDate', 'lastCountQuantity', 'autoDailyConsumption', 'daysTracked']) &&
+             hasOnlyAllowedFields(['name', 'quantity', 'price', 'waste', 'minQuantity', 'category', 'dailyConsumption', 'lastCountDate', 'lastCountQuantity', 'autoDailyConsumption', 'daysTracked', 'updatedAt']) &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.quantity is number && data.quantity >= 0 &&
              data.price is number && data.price >= 0 &&
@@ -130,7 +136,8 @@ service cloud.firestore {
              (!('lastCountDate' in data) || data.lastCountDate is string) &&
              (!('lastCountQuantity' in data) || data.lastCountQuantity is number) &&
              (!('autoDailyConsumption' in data) || data.autoDailyConsumption is number) &&
-             (!('daysTracked' in data) || data.daysTracked is number);
+             (!('daysTracked' in data) || data.daysTracked is number) &&
+             (!('updatedAt' in data) || data.updatedAt is string);
     }
 
     function isValidExpense() {
@@ -190,6 +197,21 @@ service cloud.firestore {
              (!('totalReported' in data) || (data.totalReported is number && data.totalReported >= 0));
     }
 
+    function isValidTransfer() {
+      let data = request.resource.data;
+      return hasRequiredFields(['fromStoreId', 'fromStoreName', 'toStoreId', 'toStoreName', 'itemId', 'itemName', 'quantity', 'date', 'transferredBy']) &&
+             hasOnlyAllowedFields(['fromStoreId', 'fromStoreName', 'toStoreId', 'toStoreName', 'itemId', 'itemName', 'quantity', 'date', 'transferredBy']) &&
+             data.fromStoreId is string &&
+             data.fromStoreName is string &&
+             data.toStoreId is string &&
+             data.toStoreName is string &&
+             data.itemId is string &&
+             data.itemName is string &&
+             data.quantity is number && data.quantity > 0 &&
+             data.date is string &&
+             data.transferredBy is string && data.transferredBy == request.auth.uid;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -213,7 +235,7 @@ service cloud.firestore {
 
     match /stores/{storeId} {
       // Admins can read all stores. Store users can read their assigned store.
-      allow read: if isAdmin() || isStoreUser(storeId);
+      allow read: if isAdmin() || isAnyStoreUser();
       
       // Only admins can create/update/delete stores
       allow create: if isAdmin() && isValidStore();
@@ -221,10 +243,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /items/{itemId} {
-        // Admins and assigned store users can read/write items
-        allow read: if isAdmin() || isStoreUser(storeId);
-        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidItem();
-        allow update: if (isAdmin() || isStoreUser(storeId)) && isValidItem();
+        // Admins and any store users can read/write items (needed for transfers)
+        allow read: if isAdmin() || isAnyStoreUser();
+        allow create: if (isAdmin() || isAnyStoreUser()) && isValidItem();
+        allow update: if (isAdmin() || isAnyStoreUser()) && isValidItem();
         allow delete: if isAdmin() || isStoreUser(storeId);
       }
 
@@ -250,6 +272,11 @@ service cloud.firestore {
         allow update: if (isAdmin() || isStoreUser(storeId)) && isValidCashSession();
         allow delete: if isAdmin();
       }
+    }
+
+    match /transfers/{transferId} {
+      allow read: if isAdmin() || isAnyStoreUser();
+      allow create: if (isAdmin() || isAnyStoreUser()) && isValidTransfer();
     }
   }
 }

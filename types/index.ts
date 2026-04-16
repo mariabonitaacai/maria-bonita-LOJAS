@@ -99,3 +99,16 @@ export interface CashSession {
   totalReported?: number;
   discrepancy?: number;
 }
+
+export interface Transfer {
+  id: string;
+  fromStoreId: string;
+  fromStoreName: string;
+  toStoreId: string;
+  toStoreName: string;
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  date: string;
+  transferredBy: string;
+}
