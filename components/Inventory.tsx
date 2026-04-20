@@ -85,7 +85,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
 
   const isAnyLoading = isInventoryLoading || isSessionLoading || isFinanceLoading;
 
-  const [openingData, setOpeningData] = useState({ bills: '', coins: '', changeReserve: '' });
+  const [openingData, setOpeningData] = useState({ date: new Date().toISOString().split('T')[0], bills: '', coins: '', changeReserve: '' });
   const [closingFlowData, setClosingFlowData] = useState({ 
     bills: '', 
     coins: '', 
@@ -412,13 +412,13 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     e.preventDefault();
     try {
       await openSessionHook({
-        date: new Date().toISOString().split('T')[0],
+        date: openingData.date || new Date().toISOString().split('T')[0],
         openedBy: auth.currentUser?.uid || '',
         openingBills: Number(openingData.bills.replace(',', '.')) || 0,
         openingCoins: Number(openingData.coins.replace(',', '.')) || 0,
         openingChangeReserve: Number(openingData.changeReserve.replace(',', '.')) || 0
       });
-      setOpeningData({ bills: '', coins: '', changeReserve: '' });
+      setOpeningData({ date: new Date().toISOString().split('T')[0], bills: '', coins: '', changeReserve: '' });
       showNotification('Caixa aberto com sucesso!');
     } catch (error) {
       console.error("Error opening cash session:", error);
@@ -1124,6 +1124,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                   <p className="text-sm text-on-surface-variant mb-8 font-medium">Informe os valores iniciais para começar o turno.</p>
                   
                   <form onSubmit={openCashSession} className="space-y-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1 flex items-center gap-1">Data da Sessão</label>
+                      <input name="date" value={openingData.date || ''} onChange={handleOpeningFlowChange} type="date" className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" required/>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1 flex items-center gap-1">Cédulas (R$)</label>

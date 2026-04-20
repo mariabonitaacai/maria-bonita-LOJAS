@@ -31,16 +31,19 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const [financeStoreFilter, setFinanceStoreFilter] = useState<string>('all');
   const [notification, setNotification] = useState<string | null>(null);
   const [storeToDelete, setStoreToDelete] = useState<{id: string, name: string} | null>(null);
-  const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<{storeId: string, id: string} | null>(null);
+  const [closingToDelete, setClosingToDelete] = useState<{storeId: string, id: string} | null>(null);
+  const [expenseToDelete, setExpenseToDelete] = useState<{storeId: string, id: string} | null>(null);
   const [editingSession, setEditingSession] = useState<any | null>(null);
   const [editingExpense, setEditingExpense] = useState<any | null>(null);
   const [editingClosing, setEditingClosing] = useState<any | null>(null);
 
-  const deleteClosing = async (storeId: string, closingId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este fechamento?')) return;
+  const confirmDeleteClosing = async () => {
+    if (!closingToDelete) return;
     try {
-      await deleteClosingHookHook(storeId, closingId);
+      await deleteClosingHookHook(closingToDelete.storeId, closingToDelete.id);
       showNotification('Fechamento excluído com sucesso.');
+      setClosingToDelete(null);
     } catch (error) {
       console.error("Error deleting closing:", error);
       showNotification('Erro ao excluir fechamento.');
@@ -50,7 +53,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const saveClosingEdit = async () => {
     if (!editingClosing) return;
     try {
-      const { id, storeId, ...data } = editingClosing;
+      const { id, storeId, storeName, ...data } = editingClosing;
       await updateClosingHook(storeId, id, {
         ...data,
         updatedAt: new Date().toISOString(),
@@ -64,11 +67,12 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }
   };
 
-  const deleteExpense = async (storeId: string, expenseId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta despesa?')) return;
+  const confirmDeleteExpense = async () => {
+    if (!expenseToDelete) return;
     try {
-      await deleteExpenseHookHook(storeId, expenseId);
+      await deleteExpenseHookHook(expenseToDelete.storeId, expenseToDelete.id);
       showNotification('Despesa excluída com sucesso.');
+      setExpenseToDelete(null);
     } catch (error) {
       console.error("Error deleting expense:", error);
       showNotification('Erro ao excluir despesa.');
@@ -78,7 +82,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const saveExpenseEdit = async () => {
     if (!editingExpense) return;
     try {
-      const { id, storeId, ...data } = editingExpense;
+      const { id, storeId, storeName, ...data } = editingExpense;
       await updateExpenseHook(storeId, id, {
         ...data,
         updatedAt: new Date().toISOString(),
@@ -92,11 +96,24 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }
   };
 
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    
+    try {
+      await deleteSessionHookHook(sessionToDelete.storeId, sessionToDelete.id);
+      showNotification('Registro de caixa excluído com sucesso.');
+      setSessionToDelete(null);
+    } catch (error) {
+      console.error("Error deleting session:", error);
+      showNotification('Erro ao excluir registro.');
+    }
+  };
+
   const saveSessionEdit = async () => {
     if (!editingSession) return;
     
     try {
-      const { id, storeId, ...data } = editingSession;
+      const { id, storeId, storeName, ...data } = editingSession;
       await updateSessionHook(storeId, id, {
         ...data,
         updatedAt: new Date().toISOString(),
@@ -107,18 +124,6 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     } catch (error) {
       console.error("Error updating session:", error);
       showNotification('Erro ao atualizar registro.');
-    }
-  };
-
-  const deleteSession = async (storeId: string, sessionId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este registro de caixa? Esta ação não pode ser desfeita.')) return;
-    
-    try {
-      await deleteSessionHookHook(storeId, sessionId);
-      showNotification('Registro de caixa excluído com sucesso.');
-    } catch (error) {
-      console.error("Error deleting session:", error);
-      showNotification('Erro ao excluir registro.');
     }
   };
 
@@ -820,7 +825,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                             <Edit size={18} />
                           </button>
                           <button 
-                            onClick={() => deleteExpense(exp.storeId, exp.id)}
+                            onClick={() => setExpenseToDelete({storeId: exp.storeId, id: exp.id})}
                             className="p-2 text-error hover:bg-error-container rounded-xl transition-colors"
                             title="Excluir Despesa"
                           >
@@ -885,7 +890,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                               <Edit size={18} />
                             </button>
                             <button 
-                              onClick={() => deleteClosing(closing.storeId || '', closing.id)}
+                              onClick={() => setClosingToDelete({storeId: closing.storeId || '', id: closing.id})}
                               className="p-2 text-error hover:bg-error-container rounded-xl transition-colors"
                               title="Excluir Fechamento"
                             >
@@ -970,7 +975,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                                 <Edit size={18} />
                               </button>
                               <button 
-                                onClick={() => deleteSession(session.storeId, session.id)}
+                                onClick={() => setSessionToDelete({storeId: session.storeId, id: session.id})}
                                 className="p-2 text-error hover:bg-error-container rounded-xl transition-colors"
                                 title="Excluir Registro"
                               >
@@ -1053,6 +1058,106 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 </button>
                 <button 
                   onClick={handleDeleteStore}
+                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Sim, Excluir
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {sessionToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+            >
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertTriangle size={28} />
+                <h3 className="text-xl font-bold">Excluir Registro?</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Tem certeza que deseja excluir este registro de fluxo de caixa? 
+                Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setSessionToDelete(null)}
+                  className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmDeleteSession}
+                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Sim, Excluir
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {expenseToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+            >
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertTriangle size={28} />
+                <h3 className="text-xl font-bold">Excluir Despesa?</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Tem certeza que deseja excluir esta despesa? Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setExpenseToDelete(null)}
+                  className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmDeleteExpense}
+                  className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Sim, Excluir
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {closingToDelete && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl"
+            >
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <AlertTriangle size={28} />
+                <h3 className="text-xl font-bold">Excluir Fechamento?</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Tem certeza que deseja excluir este fechamento de caixa? Esta ação não pode ser desfeita.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setClosingToDelete(null)}
+                  className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmDeleteClosing}
                   className="flex-1 py-3 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
                 >
                   Sim, Excluir

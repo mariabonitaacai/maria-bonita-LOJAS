@@ -142,7 +142,7 @@ service cloud.firestore {
 
     function isValidExpense() {
       let data = request.resource.data;
-      return hasRequiredFields(['description', 'amount', 'dueDate', 'status', 'paymentSource', 'createdAt', 'createdBy']) &&
+      return hasRequiredFields(['description', 'amount', 'dueDate', 'status', 'paymentSource', 'createdAt']) &&
              hasOnlyAllowedFields(['description', 'amount', 'dueDate', 'category', 'notes', 'status', 'paymentSource', 'isRecurring', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
              data.description is string && data.description.size() > 0 && data.description.size() < 200 &&
              data.amount is number && data.amount >= 0 &&
@@ -153,15 +153,15 @@ service cloud.firestore {
              (data.paymentSource == 'cash_drawer' || data.paymentSource == 'external') &&
              (!('isRecurring' in data) || data.isRecurring is bool) &&
              data.createdAt is string &&
-             data.createdBy is string &&
+             (!('createdBy' in data) || data.createdBy is string) &&
              (!('updatedAt' in data) || data.updatedAt is string) &&
              (!('updatedBy' in data) || data.updatedBy is string);
     }
 
     function isValidClosing() {
       let data = request.resource.data;
-      return hasRequiredFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt', 'createdBy']) &&
-             hasOnlyAllowedFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt', 'createdBy']) &&
+      return hasRequiredFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt']) &&
+             hasOnlyAllowedFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
              data.date is string && data.date.size() == 10 &&
              data.pix is number && data.pix >= 0 &&
              data.credit is number && data.credit >= 0 &&
@@ -169,13 +169,15 @@ service cloud.firestore {
              data.cash is number && data.cash >= 0 &&
              data.total is number && data.total >= 0 &&
              data.createdAt is string &&
-             data.createdBy is string && data.createdBy == request.auth.uid;
+             (!('createdBy' in data) || data.createdBy is string) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
+             (!('updatedBy' in data) || data.updatedBy is string);
     }
 
     function isValidCashSession() {
       let data = request.resource.data;
       return hasRequiredFields(['storeId', 'date', 'status', 'openedAt', 'openedBy', 'openingBills', 'openingCoins', 'openingChangeReserve']) &&
-             hasOnlyAllowedFields(['storeId', 'date', 'status', 'openedAt', 'openedBy', 'openingBills', 'openingCoins', 'openingChangeReserve', 'closedAt', 'closedBy', 'closingBills', 'closingCoins', 'closingChangeReserve', 'sangria', 'cashSales', 'pix', 'credit', 'debit', 'totalReported']) &&
+             hasOnlyAllowedFields(['storeId', 'date', 'status', 'openedAt', 'openedBy', 'openingBills', 'openingCoins', 'openingChangeReserve', 'closedAt', 'closedBy', 'closingBills', 'closingCoins', 'closingChangeReserve', 'sangria', 'cashSales', 'pix', 'credit', 'debit', 'totalReported', 'discrepancy', 'updatedAt', 'updatedBy']) &&
              data.storeId is string &&
              data.date is string &&
              (data.status == 'open' || data.status == 'closed') &&
@@ -194,7 +196,10 @@ service cloud.firestore {
              (!('pix' in data) || (data.pix is number && data.pix >= 0)) &&
              (!('credit' in data) || (data.credit is number && data.credit >= 0)) &&
              (!('debit' in data) || (data.debit is number && data.debit >= 0)) &&
-             (!('totalReported' in data) || (data.totalReported is number && data.totalReported >= 0));
+             (!('totalReported' in data) || (data.totalReported is number && data.totalReported >= 0)) &&
+             (!('discrepancy' in data) || (data.discrepancy is number)) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
+             (!('updatedBy' in data) || data.updatedBy is string);
     }
 
     function isValidTransfer() {
@@ -252,15 +257,15 @@ service cloud.firestore {
 
       match /expenses/{expenseId} {
         allow read: if isAdmin() || isStoreUser(storeId);
-        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidExpense() && request.resource.data.createdBy == request.auth.uid;
+        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidExpense() && (!('createdBy' in request.resource.data) || request.resource.data.createdBy == request.auth.uid);
         // Only admins can update expenses (e.g., mark as paid)
-        allow update: if isAdmin() && isValidExpense() && request.resource.data.createdBy == resource.data.createdBy;
+        allow update: if isAdmin() && isValidExpense() && (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
         allow delete: if isAdmin();
       }
 
       match /closings/{closingId} {
         allow read: if isAdmin() || isStoreUser(storeId);
-        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidClosing();
+        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidClosing() && (!('createdBy' in request.resource.data) || request.resource.data.createdBy == request.auth.uid);
         // Only admins can update or delete closings
         allow update: if isAdmin() && isValidClosing();
         allow delete: if isAdmin();
