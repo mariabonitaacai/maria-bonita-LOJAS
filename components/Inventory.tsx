@@ -188,6 +188,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     category: '',
     notes: '', 
     paymentSource: 'cash_drawer' as 'cash_drawer' | 'external',
+    paymentMethod: 'pix',
     isRecurring: false
   });
   const [closingData, setClosingData] = useState({ pix: '', credit: '', debit: '', cash: '' });
@@ -618,6 +619,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
         category: expenseData.category,
         notes: expenseData.notes,
         paymentSource: expenseData.paymentSource,
+        paymentMethod: expenseData.paymentMethod,
         isRecurring: expenseData.isRecurring,
         status: 'pending',
         createdBy: auth.currentUser?.uid || ''
@@ -629,6 +631,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
         category: '',
         notes: '', 
         paymentSource: 'cash_drawer',
+        paymentMethod: 'pix',
         isRecurring: false
       });
       showNotification('Despesa lançada com sucesso!');
@@ -1159,7 +1162,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Categoria</label>
                     <select name="category" value={expenseData.category} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all" required>
@@ -1177,6 +1180,17 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                     <select name="paymentSource" value={expenseData.paymentSource} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all">
                       <option value="cash_drawer">Caixa da Loja (Gaveta)</option>
                       <option value="external">Externo / Geral (Empresa)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest ml-1">Método de Pagamento</label>
+                    <select name="paymentMethod" value={expenseData.paymentMethod} onChange={handleExpenseChange} className="w-full bg-surface-container-low border border-outline-variant focus:border-primary rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all">
+                      <option value="pix">PIX</option>
+                      <option value="cash">Dinheiro em Espécie</option>
+                      <option value="transfer">Transferência Bancária</option>
+                      <option value="credit">Cartão de Crédito</option>
+                      <option value="debit">Cartão de Débito</option>
+                      <option value="other">Outro</option>
                     </select>
                   </div>
                 </div>

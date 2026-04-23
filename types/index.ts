@@ -40,6 +40,7 @@ export interface Expense {
   category?: string;
   notes?: string;
   paymentSource: 'cash_drawer' | 'external';
+  paymentMethod?: string;
   isRecurring: boolean;
   status: 'pending' | 'paid';
   createdAt: string;

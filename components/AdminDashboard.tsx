@@ -1001,6 +1001,16 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                           <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-widest ${exp.paymentSource === 'cash_drawer' ? 'bg-error-container text-error' : 'bg-surface-container-highest text-on-surface-variant'}`}>
                             {exp.paymentSource === 'cash_drawer' ? 'Sai do Caixa' : 'Externo/Geral'}
                           </span>
+                          {exp.paymentMethod && (
+                            <span className="text-[10px] font-bold bg-secondary-container text-on-secondary-container px-2 py-1 rounded-md uppercase tracking-widest">
+                              {exp.paymentMethod === 'pix' ? 'PIX' : 
+                               exp.paymentMethod === 'cash' ? 'Dinheiro' : 
+                               exp.paymentMethod === 'transfer' ? 'Transf.' : 
+                               exp.paymentMethod === 'credit' ? 'Crédito' : 
+                               exp.paymentMethod === 'debit' ? 'Débito' : 
+                               'Outro'}
+                            </span>
+                          )}
                           {exp.category && (
                             <span className="text-[10px] font-bold bg-surface-container-highest text-on-surface-variant px-2 py-1 rounded-md uppercase tracking-widest">
                               {exp.category}
@@ -1067,6 +1077,16 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                             Venc: {new Date(exp.dueDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
                           </p>
                           <span className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">• {exp.paymentSource === 'cash_drawer' ? 'Caixa' : 'Geral'}</span>
+                          {exp.paymentMethod && (
+                            <span className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">
+                              • {exp.paymentMethod === 'pix' ? 'PIX' : 
+                                 exp.paymentMethod === 'cash' ? 'Dinheiro' : 
+                                 exp.paymentMethod === 'transfer' ? 'Transf.' : 
+                                 exp.paymentMethod === 'credit' ? 'Crédito' : 
+                                 exp.paymentMethod === 'debit' ? 'Débito' : 
+                                 'Outro'}
+                            </span>
+                          )}
                           {exp.category && (
                             <span className="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">• {exp.category}</span>
                           )}
@@ -1554,12 +1574,12 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-gray-500 uppercase">Status</label>
                     <select 
                       value={editingExpense.status}
-                      onChange={(e) => setEditingExpense({...editingExpense, status: e.target.value})}
+                      onChange={(e) => setEditingExpense({...editingExpense, status: e.target.value as any})}
                       className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg"
                     >
                       <option value="pending">Pendente</option>
@@ -1571,11 +1591,26 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                     <label className="text-xs font-bold text-gray-500 uppercase">Origem</label>
                     <select 
                       value={editingExpense.paymentSource}
-                      onChange={(e) => setEditingExpense({...editingExpense, paymentSource: e.target.value})}
+                      onChange={(e) => setEditingExpense({...editingExpense, paymentSource: e.target.value as any})}
                       className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg"
                     >
                       <option value="cash_drawer">Caixa da Loja</option>
                       <option value="external">Externo/Geral</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Método</label>
+                    <select 
+                      value={editingExpense.paymentMethod || 'pix'}
+                      onChange={(e) => setEditingExpense({...editingExpense, paymentMethod: e.target.value})}
+                      className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg"
+                    >
+                      <option value="pix">PIX</option>
+                      <option value="cash">Dinheiro em Espécie</option>
+                      <option value="transfer">Transferência Bancária</option>
+                      <option value="credit">Cartão de Crédito</option>
+                      <option value="debit">Cartão de Débito</option>
+                      <option value="other">Outro</option>
                     </select>
                   </div>
                 </div>
