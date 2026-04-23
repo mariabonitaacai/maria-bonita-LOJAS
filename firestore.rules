@@ -202,6 +202,21 @@ service cloud.firestore {
              (!('updatedBy' in data) || data.updatedBy is string);
     }
 
+    function isValidChecklist() {
+      let data = request.resource.data;
+      return hasRequiredFields(['date', 'storeId', 'score', 'items', 'createdAt']) &&
+             hasOnlyAllowedFields(['date', 'storeId', 'score', 'items', 'photos', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
+             data.date is string && data.date.size() == 10 &&
+             data.storeId is string &&
+             data.score is number && data.score >= 0 && data.score <= 100 &&
+             data.items is map &&
+             (!('photos' in data) || (data.photos is list && data.photos.size() <= 20)) &&
+             data.createdAt is string &&
+             (!('createdBy' in data) || data.createdBy is string) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
+             (!('updatedBy' in data) || data.updatedBy is string);
+    }
+
     function isValidTransfer() {
       let data = request.resource.data;
       return hasRequiredFields(['fromStoreId', 'fromStoreName', 'toStoreId', 'toStoreName', 'itemId', 'itemName', 'quantity', 'date', 'transferredBy']) &&
@@ -268,6 +283,13 @@ service cloud.firestore {
         allow create: if (isAdmin() || isStoreUser(storeId)) && isValidClosing() && (!('createdBy' in request.resource.data) || request.resource.data.createdBy == request.auth.uid);
         // Only admins can update or delete closings
         allow update: if isAdmin() && isValidClosing();
+        allow delete: if isAdmin();
+      }
+
+      match /checklists/{checklistId} {
+        allow read: if isAdmin() || isStoreUser(storeId);
+        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidChecklist();
+        allow update: if (isAdmin() || isStoreUser(storeId)) && isValidChecklist();
         allow delete: if isAdmin();
       }
 

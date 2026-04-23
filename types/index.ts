@@ -112,3 +112,16 @@ export interface Transfer {
   date: string;
   transferredBy: string;
 }
+
+export interface DailyChecklist {
+  id: string;
+  storeId: string;
+  date: string;
+  score: number;
+  items: Record<string, boolean>;
+  photos?: string[];
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}

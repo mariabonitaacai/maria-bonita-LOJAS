@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3, ArrowRightLeft } from 'lucide-react';
+import { Package, Plus, Trash2, Share2, PlusCircle, MinusCircle, DollarSign, Box, AlertTriangle, CheckCircle, Edit, Check, X, Search, RefreshCw, LogOut, ArrowLeft, ShoppingCart, Send, Bell, Settings, ClipboardCheck, Filter, Download, TrendingUp, Tag, Minus, MoreVertical, PieChart as PieChartIcon, BarChart3, ArrowRightLeft, Clock, Camera, Image as ImageIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, db } from '../firebase';
+import { auth, db, storage } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFinance } from '../hooks/useFinance';
 import { useInventory } from '../hooks/useInventory';
 import { useCashSession } from '../hooks/useCashSession';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Image from 'next/image';
-import { InventoryItem } from '../types';
+import { InventoryItem, DailyChecklist } from '../types';
+import { CHECKLIST_TEMPLATE, calculateChecklistScore } from '../utils/checklistTemplate';
+import { getChecklistsByStore, saveDailyChecklist } from '../services/checklistService';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
   const { 
@@ -60,8 +63,122 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
   const [orderDays, setOrderDays] = useState(7);
   const [orderItems, setOrderItems] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'analysis' | 'finance'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'analysis' | 'finance' | 'checklist'>('inventory');
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, { quantity?: number, waste?: number }>>({});
+
+  // Checklist State
+  const [checklistData, setChecklistData] = useState<Record<string, boolean>>({});
+  const [checklistItems, setChecklistItems] = useState<DailyChecklist[]>([]);
+  const [checklistPhotos, setChecklistPhotos] = useState<File[]>([]);
+  const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+  const [isUploadingChecklist, setIsUploadingChecklist] = useState(false);
+  const [isChecklistLoading, setIsChecklistLoading] = useState(true);
+  
+  useEffect(() => {
+    if (activeTab === 'checklist') {
+      setIsChecklistLoading(true);
+      getChecklistsByStore(storeId).then(lists => {
+        setChecklistItems(lists);
+        setIsChecklistLoading(false);
+      }).catch(err => {
+        console.error("Erro ao carregar checklists:", err);
+        showNotification("Erro ao carregar histórico de checklists.");
+        setIsChecklistLoading(false);
+      });
+    }
+  }, [activeTab, storeId]);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayChecklist = useMemo(() => checklistItems.find(c => c.date === todayStr), [checklistItems, todayStr]);
+
+  useEffect(() => {
+    if (todayChecklist) {
+      setChecklistData(todayChecklist.items || {});
+      setExistingPhotos(todayChecklist.photos || []);
+    } else {
+      setChecklistData({});
+      setExistingPhotos([]);
+    }
+  }, [todayChecklist]);
+
+  const handleChecklistToggle = (taskId: string) => {
+    setChecklistData(prev => ({
+      ...prev,
+      [taskId]: !prev[taskId]
+    }));
+  };
+
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new window.Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.onerror = error => reject(error);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleSaveChecklist = async () => {
+    const score = calculateChecklistScore(checklistData);
+    setIsUploadingChecklist(true);
+    let uploadedUrls: string[] = [...existingPhotos];
+
+    try {
+      if (checklistPhotos.length > 0) {
+        showNotification('Processando e salvando fotos...');
+        for (const file of checklistPhotos) {
+          const compressedBase64 = await compressImage(file);
+          uploadedUrls.push(compressedBase64);
+        }
+      }
+
+      await saveDailyChecklist(storeId, todayStr, {
+        score,
+        items: checklistData,
+        photos: uploadedUrls,
+        createdBy: auth.currentUser?.uid || ''
+      });
+      
+      setChecklistPhotos([]);
+      setExistingPhotos(uploadedUrls);
+      showNotification('Checklist salvo com sucesso!');
+      
+      // Atualizar lista localmente
+      getChecklistsByStore(storeId).then(setChecklistItems);
+    } catch (error) {
+      console.error("Erro ao salvar checklist:", error);
+      showNotification('Erro ao salvar checklist.');
+    } finally {
+      setIsUploadingChecklist(false);
+    }
+  };
 
   // Finance State
   const [expenseData, setExpenseData] = useState({ 
@@ -586,9 +703,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               </div>
             </div>
             <nav className="hidden md:flex p-1.5 bg-surface-container-low rounded-2xl border border-outline-variant">
-              <button onClick={() => setActiveTab('inventory')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Estoque</button>
-              <button onClick={() => setActiveTab('analysis')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Inteligência</button>
-              <button onClick={() => setActiveTab('finance')} className={`px-6 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Financeiro</button>
+              <button onClick={() => setActiveTab('inventory')} className={`px-4 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Estoque</button>
+              <button onClick={() => setActiveTab('analysis')} className={`px-4 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Inteligência</button>
+              <button onClick={() => setActiveTab('finance')} className={`px-4 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Financeiro</button>
+              <button onClick={() => setActiveTab('checklist')} className={`px-4 py-2 rounded-xl font-headline font-bold text-xs tracking-wider uppercase transition-all ${activeTab === 'checklist' ? 'bg-primary text-on-primary shadow-lg shadow-primary/20' : 'text-on-surface-variant hover:text-primary'}`}>Checklist</button>
             </nav>
           </div>
           <div className="flex items-center gap-4">
@@ -622,9 +740,10 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
               </button>
             )}
             <div className="md:hidden flex-1 flex bg-surface-container-low rounded-2xl p-1 border border-outline-variant">
-              <button onClick={() => setActiveTab('inventory')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Inv.</button>
-              <button onClick={() => setActiveTab('analysis')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Análise</button>
-              <button onClick={() => setActiveTab('finance')} className={`flex-1 py-3 text-xs font-bold rounded-xl transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Caixa</button>
+              <button onClick={() => setActiveTab('inventory')} className={`flex-1 py-3 text-[10px] font-bold rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Inv.</button>
+              <button onClick={() => setActiveTab('analysis')} className={`flex-1 py-3 text-[10px] font-bold rounded-xl transition-all ${activeTab === 'analysis' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Análise</button>
+              <button onClick={() => setActiveTab('finance')} className={`flex-1 py-3 text-[10px] font-bold rounded-xl transition-all ${activeTab === 'finance' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Caixa</button>
+              <button onClick={() => setActiveTab('checklist')} className={`flex-1 py-3 text-[10px] font-bold rounded-xl transition-all ${activeTab === 'checklist' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant'}`}>Check</button>
             </div>
           </div>
         </section>
@@ -1294,6 +1413,160 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 </div>
               )}
             </div>
+          </section>
+        ) : activeTab === 'checklist' ? (
+          <section className="max-w-4xl mx-auto space-y-8">
+            <div className="bg-surface-container-lowest p-8 rounded-[2rem] border border-outline-variant shadow-sm text-center">
+              <h2 className="text-3xl font-headline font-bold text-primary mb-2">Checklist da Operação</h2>
+              <p className="text-on-surface-variant font-medium">Data: {new Date().toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
+              
+              {todayChecklist && (
+                <div className="mt-6 flex flex-col items-center">
+                  <span className="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-2">Sua Pontuação Hoje</span>
+                  <div className={`w-32 h-32 rounded-full flex items-center justify-center border-8 ${todayChecklist.score >= 90 ? 'border-green-500 text-green-600' : todayChecklist.score >= 70 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'} bg-surface-container-low`}>
+                    <span className="text-4xl font-headline font-bold">{todayChecklist.score}</span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-2 font-medium">Meta Diária: 100 Pontos</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-6">
+              {CHECKLIST_TEMPLATE.map(section => {
+                let sectionCheckedCount = 0;
+                let sectionTotalCount = 0;
+                section.groups.forEach(g => {
+                  sectionTotalCount += g.tasks.length;
+                  g.tasks.forEach(t => { if (checklistData[t.id]) sectionCheckedCount++; });
+                });
+                const isSectionComplete = sectionTotalCount > 0 && sectionCheckedCount === sectionTotalCount;
+
+                return (
+                  <div key={section.id} className="bg-surface-container-lowest rounded-[2rem] border border-outline-variant shadow-sm overflow-hidden">
+                    <div className={`p-6 border-b border-outline-variant flex items-center justify-between ${isSectionComplete ? 'bg-primary-container/20' : 'bg-surface-container-low'}`}>
+                      <div>
+                        <h3 className="font-headline font-bold text-xl text-on-surface flex items-center gap-3">
+                          {isSectionComplete ? <CheckCircle size={24} className="text-primary" /> : <Clock size={24} className="text-on-surface-variant" />}
+                          {section.title}
+                        </h3>
+                        <p className="text-sm text-on-surface-variant mt-1">{section.description}</p>
+                      </div>
+                      <div className="text-right hidden sm:block">
+                        <span className="text-sm font-bold text-primary bg-primary-container px-3 py-1 rounded-full">{section.totalPoints} pts</span>
+                      </div>
+                    </div>
+
+                    <div className="divide-y divide-outline-variant/30">
+                      {section.groups.map(group => (
+                        <div key={group.id} className="p-6">
+                          <div className="flex justify-between items-center mb-4">
+                            <h4 className="font-bold text-on-surface">{group.title}</h4>
+                            <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest bg-surface-container px-2 py-1 rounded-md">{group.points} pontos</span>
+                          </div>
+                          <div className="space-y-3">
+                            {group.tasks.map(task => (
+                              <label key={task.id} className="flex gap-4 items-start p-3 bg-surface-container-lowest hover:bg-surface-container-low rounded-xl cursor-pointer transition-colors border border-transparent hover:border-outline-variant">
+                                <div className="mt-0.5">
+                                  <input 
+                                    type="checkbox" 
+                                    className="w-5 h-5 rounded border-outline-variant text-primary focus:ring-primary/50"
+                                    checked={!!checklistData[task.id]}
+                                    onChange={() => handleChecklistToggle(task.id)}
+                                  />
+                                </div>
+                                <span className={`text-sm select-none ${checklistData[task.id] ? 'line-through text-on-surface-variant' : 'text-on-surface font-medium'}`}>
+                                  {task.text}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="bg-surface-container-lowest rounded-[2rem] border border-outline-variant shadow-sm p-6 overflow-hidden mt-6">
+              <h3 className="font-headline font-bold text-xl text-on-surface flex items-center gap-3 mb-4">
+                <Camera size={24} className="text-primary" />
+                Evidências e Fotos
+              </h3>
+              <p className="text-sm text-on-surface-variant mb-6">Anexe fotos do salão, freezers e caixa para comprovar a realização do checklist.</p>
+              
+              <div className="space-y-4">
+                <div className="flex gap-4 overflow-x-auto pb-2">
+                  {existingPhotos.map((url, i) => (
+                    <div key={url} className="relative min-w-[120px] h-32 rounded-xl overflow-hidden border border-outline-variant bg-surface-container-low shrink-0">
+                      <Image src={url} alt={`Evidência ${i + 1}`} fill className="object-cover" referrerPolicy="no-referrer" />
+                      <button onClick={() => setExistingPhotos(prev => prev.filter(p => p !== url))} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {checklistPhotos.map((file, i) => (
+                    <div key={file.name + i} className="relative min-w-[120px] h-32 rounded-xl overflow-hidden border border-outline-variant bg-surface-container-low shrink-0">
+                      <img src={URL.createObjectURL(file)} alt={`Nova Evidência ${i + 1}`} className="object-cover w-full h-full" />
+                      <button onClick={() => setChecklistPhotos(prev => prev.filter(f => f !== file))} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1 hover:bg-black/70">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-primary/50 text-primary rounded-2xl cursor-pointer bg-primary-container/20 hover:bg-primary-container/40 transition-colors">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <ImageIcon className="w-8 h-8 mb-2" />
+                    <p className="text-sm font-bold">Adicionar Fotos</p>
+                    <p className="text-xs text-primary/70 mt-1">Tire uma foto ou envie da galeria</p>
+                  </div>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    multiple 
+                    accept="image/*" 
+                    onChange={(e) => {
+                      if (e.target.files) {
+                        setChecklistPhotos(prev => [...prev, ...Array.from(e.target.files as FileList)]);
+                      }
+                    }} 
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="sticky bottom-20 md:bottom-10 z-30 pt-4">
+              <button 
+                onClick={handleSaveChecklist}
+                disabled={isUploadingChecklist}
+                className={`w-full font-bold py-5 rounded-2xl shadow-xl active:scale-[0.98] transition-all flex justify-center items-center gap-3 text-lg ${isUploadingChecklist ? 'bg-surface-variant text-on-surface-variant cursor-not-allowed shadow-none' : 'bg-primary hover:bg-primary/90 text-on-primary shadow-primary/30'}`}
+              >
+                {isUploadingChecklist ? (
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-on-surface-variant"></div>
+                ) : (
+                  <ClipboardCheck size={24} />
+                )}
+                {isUploadingChecklist ? 'Enviando...' : 'Gravar Checklist do Turno'}
+              </button>
+            </div>
+            
+            {/* Visualização de Histórico na Loja */}
+            {checklistItems.length > 0 && (
+              <div className="pt-12">
+                 <h3 className="text-xl font-headline font-bold text-on-surface mb-6">Histórico de Fechamentos Recentes</h3>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    {checklistItems.filter(c => c.date !== todayStr).slice(0, 6).sort((a,b) => b.date.localeCompare(a.date)).map(past => (
+                      <div key={past.id} className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant flex flex-col items-center justify-center text-center">
+                        <span className="text-sm font-bold text-on-surface-variant mb-3">{new Date(past.date).toLocaleDateString('pt-BR', { timeZone: 'UTC'})}</span>
+                        <div className={`w-16 h-16 rounded-full flex items-center justify-center border-4 ${past.score >= 90 ? 'border-green-500 text-green-600' : past.score >= 70 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'} bg-surface-container-low`}>
+                          <span className="text-xl font-headline font-bold">{past.score}</span>
+                        </div>
+                      </div>
+                    ))}
+                 </div>
+              </div>
+            )}
           </section>
         ) : null}
       </main>

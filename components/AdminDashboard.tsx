@@ -1,9 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { auth } from '../firebase';
-import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck, Trash2, AlertTriangle, DollarSign, CheckCircle, XCircle, Clock, TrendingUp, TrendingDown, Wallet, PieChart as PieChartIcon, BarChart3, Edit, X, Calendar } from 'lucide-react';
+import { Store, Plus, LogOut, ChevronRight, Users, UserCheck, ShieldCheck, Trash2, AlertTriangle, DollarSign, CheckCircle, XCircle, Clock, TrendingUp, TrendingDown, Wallet, PieChart as PieChartIcon, BarChart3, Edit, X, Calendar, ClipboardCheck, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAdmin } from '../hooks/useAdmin';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { getChecklistsByStore } from '../services/checklistService';
+import { DailyChecklist } from '../types';
+import { CHECKLIST_TEMPLATE } from '../utils/checklistTemplate';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import Image from 'next/image';
 import ChatMaria from './ChatMaria';
 
 export default function AdminDashboard({ onSelectStore }: { onSelectStore: (storeId: string, storeName: string) => void }) {
@@ -26,9 +30,13 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     isLoading
   } = useAdmin();
   const [newStoreName, setNewStoreName] = useState('');
-  const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance'>('stores');
+  const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance' | 'checklists'>('stores');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [financeStoreFilter, setFinanceStoreFilter] = useState<string>('all');
+  const [checklistStoreFilter, setChecklistStoreFilter] = useState<string>('all');
+  const [checklistDateFilter, setChecklistDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [allChecklists, setAllChecklists] = useState<DailyChecklist[]>([]);
+  const [isChecklistsLoading, setIsChecklistsLoading] = useState(true);
   const [notification, setNotification] = useState<string | null>(null);
   const [storeToDelete, setStoreToDelete] = useState<{id: string, name: string} | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{storeId: string, id: string} | null>(null);
@@ -37,6 +45,72 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   const [editingSession, setEditingSession] = useState<any | null>(null);
   const [editingExpense, setEditingExpense] = useState<any | null>(null);
   const [editingClosing, setEditingClosing] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (stores.length === 0) return;
+    let isMounted = true;
+    
+    Promise.all(stores.map(s => getChecklistsByStore(s.id)))
+      .then(results => {
+        if (!isMounted) return;
+        setAllChecklists(results.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        setIsChecklistsLoading(false);
+      })
+      .catch(err => {
+         console.error("Error fetching checklists:", err);
+         if (isMounted) setIsChecklistsLoading(false);
+      });
+      
+    return () => { isMounted = false; };
+  }, [stores]);
+
+  const filteredChecklists = useMemo(() => {
+    let result = allChecklists;
+    if (checklistStoreFilter !== 'all') {
+      result = result.filter(c => c.storeId === checklistStoreFilter);
+    }
+    if (checklistDateFilter !== 'all') {
+      const now = new Date();
+      result = result.filter(c => {
+        // Date is format YYYY-MM-DD
+        const [year, month, day] = c.date.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        
+        if (checklistDateFilter === 'today') return c.date === now.toISOString().split('T')[0];
+        if (checklistDateFilter === 'week') {
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          return date >= weekAgo;
+        }
+        if (checklistDateFilter === 'month') {
+          return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+        }
+        return true;
+      });
+    }
+    return result;
+  }, [allChecklists, checklistStoreFilter, checklistDateFilter]);
+
+  const checklistChartData = useMemo(() => {
+    const dateMap = new Map<string, { total: number, count: number }>();
+    filteredChecklists.forEach(c => {
+      const key = new Date(c.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+      const current = dateMap.get(key) || { total: 0, count: 0 };
+      current.total += c.score;
+      current.count += 1;
+      dateMap.set(key, current);
+    });
+
+    return Array.from(dateMap.entries())
+      .map(([date, data]) => ({
+        date,
+        media: Math.round(data.total / data.count)
+      }))
+      .sort((a, b) => {
+        const [dayA, monthA, yearA] = a.date.split('/');
+        const [dayB, monthB, yearB] = b.date.split('/');
+        return new Date(`${yearA}-${monthA}-${dayA}`).getTime() - new Date(`${yearB}-${monthB}-${dayB}`).getTime();
+      });
+  }, [filteredChecklists]);
 
   const confirmDeleteClosing = async () => {
     if (!closingToDelete) return;
@@ -218,7 +292,32 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       return acc;
     }, {} as Record<string, number>);
 
-    return { revenue, expenses, profit: revenue - expenses, byMethod, byStore, expensesByCategory };
+    // Daily Metrics (Revenue vs Expenses vs Profit)
+    const dailyMap = new Map<string, { date: string, revenue: number, expense: number }>();
+    
+    allSessions.forEach(s => {
+      const date = new Date(s.openedAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+      const current = dailyMap.get(date) || { date, revenue: 0, expense: 0 };
+      current.revenue += (Number(s.totalReported) || 0);
+      dailyMap.set(date, current);
+    });
+
+    allExpenses.filter(e => e.status === 'paid').forEach(e => {
+      const date = new Date(e.createdAt).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+      const current = dailyMap.get(date) || { date, revenue: 0, expense: 0 };
+      current.expense += (Number(e.amount) || 0);
+      dailyMap.set(date, current);
+    });
+
+    const dailyMetrics = Array.from(dailyMap.values())
+      .map(d => ({ ...d, profit: d.revenue - d.expense }))
+      .sort((a, b) => {
+        const [dayA, monthA, yearA] = a.date.split('/');
+        const [dayB, monthB, yearB] = b.date.split('/');
+        return new Date(`${yearA}-${monthA}-${dayA}`).getTime() - new Date(`${yearB}-${monthB}-${dayB}`).getTime();
+      });
+
+    return { revenue, expenses, profit: revenue - expenses, byMethod, byStore, expensesByCategory, dailyMetrics };
   }, [allExpenses, allSessions, stores]);
 
   const handleAddStore = async (e: React.FormEvent) => {
@@ -368,7 +467,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
 
       <main className="max-w-4xl mx-auto px-4 flex flex-col gap-8">
         {/* Tabs */}
-        <div className="flex bg-surface-container-low p-1.5 rounded-2xl shadow-sm border border-outline-variant flex-wrap sm:flex-nowrap">
+        <div className="flex bg-surface-container-low p-1.5 rounded-2xl shadow-sm border border-outline-variant flex-wrap lg:flex-nowrap">
           <button 
             onClick={() => setActiveTab('stores')}
             className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-2 rounded-xl font-bold transition-all ${activeTab === 'stores' ? 'bg-primary text-on-primary shadow-lg' : 'text-on-surface-variant hover:bg-surface-container'}`}
@@ -389,6 +488,13 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
           >
             <DollarSign size={20} />
             Financeiro
+          </button>
+          <button 
+            onClick={() => setActiveTab('checklists')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-2 rounded-xl font-bold transition-all ${activeTab === 'checklists' ? 'bg-primary text-on-primary shadow-lg' : 'text-on-surface-variant hover:bg-surface-container'}`}
+          >
+            <CheckCircle size={20} />
+            Checklists
           </button>
         </div>
 
@@ -517,6 +623,138 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               ))}
             </div>
           </section>
+        ) : activeTab === 'checklists' ? (
+          <section className="flex flex-col gap-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
+              <div>
+                <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2">
+                  <CheckCircle size={28} className="text-primary" />
+                  Desempenho e Checklists
+                </h2>
+                <p className="text-on-surface-variant text-sm mt-1">Acompanhe a pontuação diária das lojas</p>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select
+                  value={checklistStoreFilter}
+                  onChange={(e) => setChecklistStoreFilter(e.target.value)}
+                  className="bg-surface-container-low border border-outline-variant text-on-surface text-sm rounded-xl focus:ring-primary focus:border-primary block w-full p-2.5 font-bold"
+                >
+                  <option value="all">Todas as Lojas</option>
+                  {stores.map(store => (
+                    <option key={store.id} value={store.id}>{store.name}</option>
+                  ))}
+                </select>
+
+                <div className="flex bg-surface-container-low p-1 rounded-xl border border-outline-variant">
+                  <button 
+                    onClick={() => setChecklistDateFilter('today')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${checklistDateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Hoje
+                  </button>
+                  <button 
+                    onClick={() => setChecklistDateFilter('week')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${checklistDateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Semana
+                  </button>
+                  <button 
+                    onClick={() => setChecklistDateFilter('month')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${checklistDateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Mês
+                  </button>
+                  <button 
+                    onClick={() => setChecklistDateFilter('all')}
+                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${checklistDateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                  >
+                    Tudo
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {checklistChartData.length > 0 && (
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant mb-6">
+                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-primary" />
+                  Evolução da Nota Média (Checklists)
+                </h3>
+                <div className="h-[250px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={checklistChartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <RechartsTooltip 
+                        formatter={(value: any) => [`${value} pts`, 'Pontuação']}
+                        labelStyle={{ color: '#1e293b', fontWeight: 'bold' }}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Line type="monotone" dataKey="media" name="Média de Pontos" stroke="#3b82f6" strokeWidth={4} dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+            
+            {/* Checklist View */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {isChecklistsLoading ? (
+                 <div className="lg:col-span-3 p-12 text-center text-on-surface-variant">Carregando checklists...</div>
+              ) : filteredChecklists.length === 0 ? (
+                <div className="lg:col-span-3 p-12 text-center bg-surface-container-lowest rounded-[2rem] border border-outline-variant">
+                  <ClipboardCheck size={48} className="mx-auto text-on-surface-variant mb-4 opacity-50" />
+                  <p className="text-on-surface-variant font-medium">Nenhum checklist registrado para os filtros selecionados.</p>
+                </div>
+              ) : (
+                filteredChecklists.map(checklist => {
+                  const store = stores.find(s => s.id === checklist.storeId);
+                  const isHigh = checklist.score >= 90;
+                  const isMed = checklist.score >= 70 && checklist.score < 90;
+                  
+                  return (
+                    <div key={checklist.id} className="bg-surface-container-lowest rounded-2xl border border-outline-variant p-6 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
+                      <div>
+                        <div className="flex justify-between items-start mb-4">
+                          <span className={`text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded-md ${isHigh ? 'bg-green-100 text-green-700' : isMed ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                            {checklist.score} Pontos
+                          </span>
+                          <span className="text-xs font-bold text-on-surface-variant">
+                            {new Date(checklist.date).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}
+                          </span>
+                        </div>
+                        <h3 className="font-headline font-bold text-lg text-on-surface mb-1">
+                          {store?.name || 'Loja Desconhecida'}
+                        </h3>
+                        <p className="text-xs text-on-surface-variant mb-4 flex items-center gap-1">
+                           <UserCheck size={12} /> Avaliador: {checklist.createdBy || 'Sistema'}
+                        </p>
+                        
+                        {checklist.photos && checklist.photos.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-xs font-bold text-on-surface-variant mb-2">Evidências ({checklist.photos.length})</p>
+                            <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                              {checklist.photos.map((url, i) => (
+                                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="relative w-16 h-16 rounded-lg overflow-hidden border border-outline-variant shrink-0 bg-surface-container hover:opacity-80 transition-opacity">
+                                  <Image src={url} alt={`Evidência ${i + 1}`} fill className="object-cover" referrerPolicy="no-referrer" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="w-full bg-surface-container rounded-full h-2">
+                        <div className={`h-2 rounded-full ${isHigh ? 'bg-green-500' : isMed ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${checklist.score}%` }}></div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
         ) : activeTab === 'finance' ? (
           <section className="flex flex-col gap-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
@@ -569,7 +807,6 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
             </div>
 
-            {/* Dashboard Financeiro */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-surface-container-lowest p-8 rounded-3xl shadow-sm border border-outline-variant flex flex-col justify-between">
                 <div className="flex items-center gap-3 mb-4">
@@ -596,7 +833,33 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
             </div>
 
-            <div className={`grid grid-cols-1 ${financeStoreFilter === 'all' ? 'lg:grid-cols-2' : ''} gap-6`}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Gráfico de Evolução Diária */}
+              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilter !== 'all' ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
+                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
+                  <TrendingUp size={20} className="text-primary" />
+                  Evolução do Faturamento e Lucro Diário
+                </h3>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={stats.dailyMetrics}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <RechartsTooltip 
+                        formatter={(value: any) => formatCurrency(Number(value))}
+                        labelStyle={{ color: '#1e293b', fontWeight: 'bold' }}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend wrapperStyle={{ paddingTop: '10px' }} />
+                      <Line type="monotone" dataKey="revenue" name="Receita" stroke="#4a148c" strokeWidth={4} dot={{ r: 4, fill: '#4a148c', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
+                      <Line type="monotone" dataKey="expense" name="Despesa" stroke="#ef4444" strokeWidth={3} dot={{ r: 3, fill: '#ef4444', strokeWidth: 1, stroke: '#fff' }} activeDot={{ r: 5 }} />
+                      <Line type="monotone" dataKey="profit" name="Lucro" stroke="#10b981" strokeWidth={4} dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
               {/* Gráfico por Loja */}
               {financeStoreFilter === 'all' && (
                 <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
@@ -616,12 +879,54 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         />
                         <Legend wrapperStyle={{ paddingTop: '20px' }} />
                         <Bar dataKey="receita" name="Receita" fill="#4a148c" radius={[8, 8, 0, 0]} />
-                        <Bar dataKey="lucro" name="Lucro" fill="#ff4081" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="lucro" name="Lucro" fill="#10b981" radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
               )}
+
+              {/* Gráfico de Métodos de Pagamento */}
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
+                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
+                  <PieChartIcon size={20} className="text-primary" />
+                  Composição de Receita
+                </h3>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={[
+                          { name: 'PIX', value: stats.byMethod.pix, color: '#06b6d4' },
+                          { name: 'Dinheiro', value: stats.byMethod.cash, color: '#10b981' },
+                          { name: 'Crédito', value: stats.byMethod.credit, color: '#6366f1' },
+                          { name: 'Débito', value: stats.byMethod.debit, color: '#f59e0b' }
+                        ].filter(d => d.value > 0)}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={110}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {[
+                          { name: 'PIX', value: stats.byMethod.pix, color: '#06b6d4' },
+                          { name: 'Dinheiro', value: stats.byMethod.cash, color: '#10b981' },
+                          { name: 'Crédito', value: stats.byMethod.credit, color: '#6366f1' },
+                          { name: 'Débito', value: stats.byMethod.debit, color: '#f59e0b' }
+                        ].filter(d => d.value > 0).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        formatter={(value: any) => formatCurrency(Number(value))}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
 
               {/* Gráfico de Despesas por Categoria */}
               <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
@@ -636,7 +941,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         data={Object.entries(stats.expensesByCategory).map(([name, value]) => ({ name, value: Number(value) })).filter(d => d.value > 0)}
                         cx="50%"
                         cy="50%"
-                        innerRadius={70}
+                        innerRadius={80}
                         outerRadius={110}
                         paddingAngle={5}
                         dataKey="value"
@@ -645,48 +950,6 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                           const colors = ['#ff4081', '#4a148c', '#06b6d4', '#f59e0b', '#10b981', '#6366f1'];
                           return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
                         })}
-                      </Pie>
-                      <RechartsTooltip 
-                        formatter={(value: any) => formatCurrency(Number(value))}
-                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
-                      />
-                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Gráfico de Métodos de Pagamento */}
-              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilter === 'all' ? 'lg:col-span-2' : ''}`}>
-                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                  <PieChartIcon size={20} className="text-primary" />
-                  Meios de Pagamento
-                </h3>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: 'PIX', value: stats.byMethod.pix, color: '#06b6d4' },
-                          { name: 'Dinheiro', value: stats.byMethod.cash, color: '#10b981' },
-                          { name: 'Crédito', value: stats.byMethod.credit, color: '#6366f1' },
-                          { name: 'Débito', value: stats.byMethod.debit, color: '#f59e0b' }
-                        ].filter(d => d.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={70}
-                        outerRadius={110}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {[
-                          { name: 'PIX', value: stats.byMethod.pix, color: '#06b6d4' },
-                          { name: 'Dinheiro', value: stats.byMethod.cash, color: '#10b981' },
-                          { name: 'Crédito', value: stats.byMethod.credit, color: '#6366f1' },
-                          { name: 'Débito', value: stats.byMethod.debit, color: '#f59e0b' }
-                        ].filter(d => d.value > 0).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
                       </Pie>
                       <RechartsTooltip 
                         formatter={(value: any) => formatCurrency(Number(value))}
