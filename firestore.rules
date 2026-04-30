@@ -69,7 +69,7 @@ service cloud.firestore {
       return isAuthenticated() && (
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
-        (request.auth.token.email == 'mariabonitaacai8@gmail.com' && request.auth.token.email_verified == true)
+        (request.auth.token.email == 'mariabonitaacai8@gmail.com')
       );
     }
 
@@ -86,7 +86,7 @@ service cloud.firestore {
     }
 
     function hasOnlyAllowedFields(allowedFields) {
-      return request.resource.data.keys().hasOnly(allowedFields);
+      return request.resource.data.diff({}).affectedKeys().hasOnly(allowedFields);
     }
 
     function hasRequiredFields(requiredFields) {
@@ -111,7 +111,7 @@ service cloud.firestore {
              hasOnlyAllowedFields(['email', 'role', 'storeId']) &&
              isValidEmail(data.email) &&
              (data.role == 'admin' || data.role == 'store') &&
-             (!('storeId' in data) || (data.storeId is string && data.storeId.size() > 0 && data.storeId.size() < 100));
+             (!('storeId' in data) || data.storeId == null || (data.storeId is string && data.storeId.size() > 0 && data.storeId.size() < 100));
     }
 
     function isValidStore() {
@@ -143,7 +143,7 @@ service cloud.firestore {
     function isValidExpense() {
       let data = request.resource.data;
       return hasRequiredFields(['description', 'amount', 'dueDate', 'status', 'paymentSource', 'createdAt']) &&
-             hasOnlyAllowedFields(['description', 'amount', 'dueDate', 'category', 'notes', 'status', 'paymentSource', 'paymentMethod', 'isRecurring', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
+             hasOnlyAllowedFields(['description', 'amount', 'dueDate', 'category', 'notes', 'status', 'paymentSource', 'paymentMethod', 'isRecurring', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'storeId', 'storeName']) &&
              data.description is string && data.description.size() > 0 && data.description.size() < 200 &&
              data.amount is number && data.amount >= 0 &&
              data.dueDate is string && data.dueDate.size() == 10 &&
@@ -156,13 +156,15 @@ service cloud.firestore {
              data.createdAt is string &&
              (!('createdBy' in data) || data.createdBy is string) &&
              (!('updatedAt' in data) || data.updatedAt is string) &&
-             (!('updatedBy' in data) || data.updatedBy is string);
+             (!('updatedBy' in data) || data.updatedBy is string) &&
+             (!('storeId' in data) || data.storeId is string) &&
+             (!('storeName' in data) || data.storeName is string);
     }
 
     function isValidClosing() {
       let data = request.resource.data;
       return hasRequiredFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt']) &&
-             hasOnlyAllowedFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
+             hasOnlyAllowedFields(['date', 'pix', 'credit', 'debit', 'cash', 'total', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'storeId', 'storeName']) &&
              data.date is string && data.date.size() == 10 &&
              data.pix is number && data.pix >= 0 &&
              data.credit is number && data.credit >= 0 &&
@@ -172,7 +174,9 @@ service cloud.firestore {
              data.createdAt is string &&
              (!('createdBy' in data) || data.createdBy is string) &&
              (!('updatedAt' in data) || data.updatedAt is string) &&
-             (!('updatedBy' in data) || data.updatedBy is string);
+             (!('updatedBy' in data) || data.updatedBy is string) &&
+             (!('storeId' in data) || data.storeId is string) &&
+             (!('storeName' in data) || data.storeName is string);
     }
 
     function isValidCashSession() {
@@ -206,7 +210,7 @@ service cloud.firestore {
     function isValidChecklist() {
       let data = request.resource.data;
       return hasRequiredFields(['date', 'storeId', 'score', 'items', 'createdAt']) &&
-             hasOnlyAllowedFields(['date', 'storeId', 'score', 'items', 'photos', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
+             hasOnlyAllowedFields(['date', 'storeId', 'score', 'items', 'photos', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy', 'storeName']) &&
              data.date is string && data.date.size() == 10 &&
              data.storeId is string &&
              data.score is number && data.score >= 0 && data.score <= 100 &&
@@ -214,6 +218,22 @@ service cloud.firestore {
              (!('photos' in data) || (data.photos is list && data.photos.size() <= 20)) &&
              data.createdAt is string &&
              (!('createdBy' in data) || data.createdBy is string) &&
+             (!('updatedAt' in data) || data.updatedAt is string) &&
+             (!('updatedBy' in data) || data.updatedBy is string) &&
+             (!('storeName' in data) || data.storeName is string);
+    }
+
+    function isValidOrder() {
+      let data = request.resource.data;
+      return hasRequiredFields(['storeId', 'storeName', 'items', 'status', 'createdAt', 'createdBy']) &&
+             hasOnlyAllowedFields(['storeId', 'storeName', 'items', 'status', 'notes', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
+             data.storeId is string &&
+             data.storeName is string &&
+             data.items is list &&
+             (data.status == 'pending' || data.status == 'processing' || data.status == 'fulfilled' || data.status == 'cancelled') &&
+             (!('notes' in data) || data.notes is string) &&
+             data.createdAt is string &&
+             data.createdBy is string &&
              (!('updatedAt' in data) || data.updatedAt is string) &&
              (!('updatedBy' in data) || data.updatedBy is string);
     }
@@ -298,6 +318,13 @@ service cloud.firestore {
         allow read: if isAdmin() || isStoreUser(storeId);
         allow create: if (isAdmin() || isStoreUser(storeId)) && isValidCashSession();
         allow update: if (isAdmin() || isStoreUser(storeId)) && isValidCashSession();
+        allow delete: if isAdmin();
+      }
+
+      match /orders/{orderId} {
+        allow read: if isAdmin() || isStoreUser(storeId);
+        allow create: if (isAdmin() || isStoreUser(storeId)) && isValidOrder();
+        allow update: if isAdmin() && isValidOrder(); // Only admin (CD) can update order status
         allow delete: if isAdmin();
       }
     }

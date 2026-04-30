@@ -133,6 +133,26 @@
         "totalReported": { "type": "number" }
       },
       "required": ["storeId", "date", "status", "openedAt", "openedBy", "openingBills", "openingCoins", "openingChangeReserve"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A supply order placed by a store to the distribution center.",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string" },
+        "storeName": { "type": "string" },
+        "items": { 
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "status": { "type": "string", "enum": ["pending", "processing", "fulfilled", "cancelled"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["storeId", "storeName", "items", "status", "createdAt", "createdBy"]
     }
   },
   "firestore": {
@@ -171,6 +191,12 @@
         "$ref": "#/entities/CashSession"
       },
       "description": "Stores cash flow sessions (opening/closing) for a specific store."
+    },
+    "/stores/{storeId}/orders/{orderId}": {
+      "schema": {
+        "$ref": "#/entities/Order"
+      },
+      "description": "Stores supply orders from a store to the distribution center."
     }
   }
 }

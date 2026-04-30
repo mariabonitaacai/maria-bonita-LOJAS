@@ -8,6 +8,7 @@ export const useAdmin = () => {
   const [expensesByStore, setExpensesByStore] = useState<Record<string, any[]>>({});
   const [closingsByStore, setClosingsByStore] = useState<Record<string, any[]>>({});
   const [sessionsByStore, setSessionsByStore] = useState<Record<string, any[]>>({});
+  const [ordersByStore, setOrdersByStore] = useState<Record<string, any[]>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -46,6 +47,11 @@ export const useAdmin = () => {
         setSessionsByStore(prev => ({ ...prev, [store.id]: data }));
       });
       unsubscribes.push(unsubSess);
+
+      const unsubOrder = adminService.subscribeToStoreOrders(store.id, store.name, (data) => {
+        setOrdersByStore(prev => ({ ...prev, [store.id]: data }));
+      });
+      unsubscribes.push(unsubOrder);
     });
 
     return () => {
@@ -59,6 +65,7 @@ export const useAdmin = () => {
     expensesByStore,
     closingsByStore,
     sessionsByStore,
+    ordersByStore,
     isLoading,
     createStore: adminService.createStore,
     deleteStore: (storeId: string) => adminService.deleteStore(storeId, users),
@@ -69,6 +76,8 @@ export const useAdmin = () => {
     updateClosing: adminService.updateClosing,
     deleteClosing: adminService.deleteClosing,
     updateSession: adminService.updateSession,
-    deleteSession: adminService.deleteSession
+    deleteSession: adminService.deleteSession,
+    updateOrderStatus: adminService.updateOrderStatus,
+    deleteOrder: adminService.deleteOrder
   };
 };

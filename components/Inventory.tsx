@@ -12,6 +12,8 @@ import Image from 'next/image';
 import { InventoryItem, DailyChecklist } from '../types';
 import { CHECKLIST_TEMPLATE, calculateChecklistScore } from '../utils/checklistTemplate';
 import { getChecklistsByStore, saveDailyChecklist } from '../services/checklistService';
+import { createOrder, subscribeToOrders } from '../services/orderService';
+import { Order, OrderItem } from '../types';
 
 export default function Inventory({ storeId, storeName, onBack }: { storeId: string, storeName: string, onBack?: () => void }) {
   const { 
@@ -64,7 +66,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   const [orderDays, setOrderDays] = useState(7);
   const [orderItems, setOrderItems] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'inventory' | 'analysis' | 'finance' | 'checklist'>('inventory');
-  const [pendingUpdates, setPendingUpdates] = useState<Record<string, { quantity?: number, waste?: number }>>({});
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, { quantity?: string | number, waste?: string | number }>>({});
 
   // Checklist State
   const [checklistData, setChecklistData] = useState<Record<string, boolean>>({});
@@ -267,7 +269,8 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   };
 
   const adjustValue = (item: any, field: string, change: number) => {
-    const currentValue = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'] ?? item[field] ?? 0;
+    const rawVal = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'] ?? item[field] ?? 0;
+    const currentValue = typeof rawVal === 'string' ? (Number(rawVal) || 0) : rawVal;
     const newValue = Math.max(0, currentValue + change);
     setPendingUpdates(prev => ({
       ...prev,
@@ -279,19 +282,22 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
   };
 
   const handleDirectInput = (item: any, field: string, value: string) => {
-    const numValue = value === '' ? undefined : Number(value);
+    // Store as string to allow empty value during typing
     setPendingUpdates(prev => ({
       ...prev,
       [item.id]: {
         ...prev[item.id],
-        [field]: numValue
+        [field]: value
       }
     }));
   };
 
   const confirmUpdate = async (item: any, field: string) => {
-    const newValue = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'];
-    if (newValue === undefined) return;
+    const rawValue = pendingUpdates[item.id]?.[field as 'quantity' | 'waste'];
+    if (rawValue === undefined) return;
+    
+    // Convert to number for saving, default to 0 if invalid
+    const newValue = Number(String(rawValue).replace(',', '.')) || 0;
 
     try {
       await confirmTrackingUpdate(item, field, newValue);
@@ -443,22 +449,45 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
     }));
   };
 
-  const sendOrderViaWhatsApp = () => {
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  const submitOrderToCD = async () => {
     const itemsToOrder = orderItems.filter(o => o.adjusted > 0);
     if (itemsToOrder.length === 0) {
       showNotification("Nenhum item para pedir.");
       return;
     }
-    
-    let message = `🛒 *PEDIDO DE COMPRA - ${storeName.toUpperCase()}* 🛒\n`;
-    message += `📅 Previsão para: ${orderDays} dias\n\n`;
-    
-    itemsToOrder.forEach(item => {
-      message += `✅ ${item.adjusted}x - ${item.name}\n`;
-    });
-    
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
+
+    if (!auth.currentUser) {
+      showNotification("Você precisa estar logado para fazer pedidos.");
+      return;
+    }
+
+    setIsSubmittingOrder(true);
+    try {
+      const orderPayload: Omit<Order, 'id'> = {
+        storeId,
+        storeName,
+        items: itemsToOrder.map(item => ({
+          itemId: item.id,
+          itemName: item.name,
+          quantity: item.adjusted,
+          notes: ''
+        })),
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        createdBy: auth.currentUser.uid
+      };
+      
+      await createOrder(storeId, orderPayload);
+      setIsOrderModalOpen(false);
+      showNotification("Pedido enviado ao Centro de Distribuição com sucesso!");
+    } catch (err) {
+      console.error("Erro ao enviar pedido: ", err);
+      showNotification("Erro ao enviar pedido ao CD.");
+    } finally {
+      setIsSubmittingOrder(false);
+    }
   };
   // -----------------------------
 
@@ -1725,9 +1754,9 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 <button onClick={() => setIsOrderModalOpen(false)} className="flex-1 py-3 px-4 bg-surface-container hover:bg-surface-container-high text-on-surface font-medium rounded-xl transition-colors">
                   Cancelar
                 </button>
-                <button onClick={sendOrderViaWhatsApp} disabled={orderItems.filter(o => o.adjusted > 0).length === 0} className="flex-1 py-3 px-4 bg-[#25D366] hover:bg-[#128C7E] disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                <button onClick={submitOrderToCD} disabled={orderItems.filter(o => o.adjusted > 0).length === 0 || isSubmittingOrder} className="flex-1 py-3 px-4 bg-primary hover:bg-primary/90 disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
                   <Send size={18} />
-                  Enviar Pedido
+                  {isSubmittingOrder ? "Enviando..." : "Enviar ao CD"}
                 </button>
               </div>
             </motion.div>

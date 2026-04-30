@@ -35,6 +35,13 @@ export const subscribeToStoreSessions = (storeId: string, storeName: string, onD
   });
 };
 
+export const subscribeToStoreOrders = (storeId: string, storeName: string, onData: (orders: any[]) => void) => {
+  const ordersRef = query(collection(db, `stores/${storeId}/orders`), orderBy('createdAt', 'desc'), limit(100));
+  return onSnapshot(ordersRef, (snapshot) => {
+    onData(snapshot.docs.map(doc => ({ id: doc.id, storeId, storeName, ...doc.data() })));
+  });
+};
+
 export const createStore = async (name: string, standardItems: { name: string, price: number }[]) => {
   const storeRef = await addDoc(collection(db, 'stores'), {
     name,
@@ -57,21 +64,24 @@ export const createStore = async (name: string, standardItems: { name: string, p
 };
 
 export const deleteStore = async (storeId: string, users: User[]) => {
-  // 1. Delete all items in the store
-  const itemsSnapshot = await getDocs(collection(db, `stores/${storeId}/items`));
-  const deletePromises = itemsSnapshot.docs.map(itemDoc => 
-    deleteDoc(doc(db, `stores/${storeId}/items`, itemDoc.id))
-  );
-  await Promise.all(deletePromises);
+  // 1. Define collections to clean up
+  const subcollections = ['items', 'expenses', 'closings', 'cashSessions', 'orders', 'checklists'];
+  
+  // 2. Delete all documents in all subcollections
+  for (const collectionName of subcollections) {
+    const snapshot = await getDocs(collection(db, `stores/${storeId}/${collectionName}`));
+    const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, `stores/${storeId}/${collectionName}`, d.id)));
+    await Promise.all(deletePromises);
+  }
 
-  // 2. Unlink users associated with this store
+  // 3. Unlink users associated with this store
   const usersToUpdate = users.filter(u => u.storeId === storeId);
   const userUpdatePromises = usersToUpdate.map(user => 
     updateDoc(doc(db, 'users', user.id), { storeId: null })
   );
   await Promise.all(userUpdatePromises);
 
-  // 3. Delete the store itself
+  // 4. Delete the store itself
   return await deleteDoc(doc(db, 'stores', storeId));
 };
 
@@ -105,4 +115,12 @@ export const updateSession = async (storeId: string, sessionId: string, data: an
 
 export const deleteSession = async (storeId: string, sessionId: string) => {
   return await deleteDoc(doc(db, `stores/${storeId}/cashSessions`, sessionId));
+};
+
+export const updateOrderStatus = async (storeId: string, orderId: string, data: any) => {
+  return await updateDoc(doc(db, `stores/${storeId}/orders`, orderId), data);
+};
+
+export const deleteOrder = async (storeId: string, orderId: string) => {
+  return await deleteDoc(doc(db, `stores/${storeId}/orders`, orderId));
 };

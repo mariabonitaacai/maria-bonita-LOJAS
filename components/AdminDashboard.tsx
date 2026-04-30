@@ -17,6 +17,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     expensesByStore, 
     closingsByStore, 
     sessionsByStore,
+    ordersByStore,
     createStore: createStoreHook,
     deleteStore: deleteStoreHook,
     updateUserRole: updateUserRoleHook,
@@ -27,14 +28,18 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     deleteClosing: deleteClosingHookHook,
     updateSession: updateSessionHook,
     deleteSession: deleteSessionHookHook,
+    updateOrderStatus: updateOrderStatusHook,
     isLoading
   } = useAdmin();
   const [newStoreName, setNewStoreName] = useState('');
-  const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance' | 'checklists'>('stores');
+  const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance' | 'checklists' | 'orders'>('stores');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
-  const [financeStoreFilter, setFinanceStoreFilter] = useState<string>('all');
+  const [financeStoreFilters, setFinanceStoreFilters] = useState<string[]>([]);
   const [checklistStoreFilter, setChecklistStoreFilter] = useState<string>('all');
   const [checklistDateFilter, setChecklistDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [ordersStoreFilter, setOrdersStoreFilter] = useState<string>('all');
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'pending' | 'processing' | 'fulfilled' | 'cancelled'>('all');
+  const [showConsolidatedOrders, setShowConsolidatedOrders] = useState(false);
   const [allChecklists, setAllChecklists] = useState<DailyChecklist[]>([]);
   const [isChecklistsLoading, setIsChecklistsLoading] = useState(true);
   const [notification, setNotification] = useState<string | null>(null);
@@ -208,12 +213,40 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     setTimeout(() => setNotification(null), 3000);
   };
 
+  const allOrders = useMemo(() => {
+    let orders = Object.values(ordersByStore).flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    if (ordersStoreFilter !== 'all') {
+      orders = orders.filter(o => o.storeId === ordersStoreFilter);
+    }
+    
+    if (ordersStatusFilter !== 'all') {
+      orders = orders.filter(o => o.status === ordersStatusFilter);
+    }
+
+    return orders;
+  }, [ordersByStore, ordersStoreFilter, ordersStatusFilter]);
+
+  const consolidatedItems = useMemo(() => {
+    const items = new Map<string, { name: string, quantity: number }>();
+    allOrders.filter(o => o.status === 'pending').forEach(order => {
+      order.items.forEach((item: any) => {
+        const existing = items.get(item.itemId);
+        if (existing) {
+          items.set(item.itemId, { ...existing, quantity: existing.quantity + item.quantity });
+        } else {
+          items.set(item.itemId, { name: item.itemName, quantity: item.quantity });
+        }
+      });
+    });
+    return Array.from(items.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allOrders]);
+
   const allExpenses = useMemo(() => {
     let expenses = Object.values(expensesByStore).flat().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
-    if (financeStoreFilter !== 'all') {
-      expenses = expensesByStore[financeStoreFilter] || [];
-      expenses = expenses.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    if (financeStoreFilters.length > 0) {
+      expenses = expenses.filter(e => financeStoreFilters.includes(e.storeId));
     }
 
     if (dateFilter !== 'all') {
@@ -236,13 +269,13 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       const store = stores.find(s => s.id === e.storeId);
       return { ...e, storeName: store ? store.name : 'Desconhecida' };
     });
-  }, [expensesByStore, dateFilter, financeStoreFilter, stores]);
+  }, [expensesByStore, dateFilter, financeStoreFilters, stores]);
 
   const allSessions = useMemo(() => {
     let sessions = Object.values(sessionsByStore).flat();
     
-    if (financeStoreFilter !== 'all') {
-      sessions = sessionsByStore[financeStoreFilter] || [];
+    if (financeStoreFilters.length > 0) {
+      sessions = sessions.filter(s => financeStoreFilters.includes(s.storeId));
     }
 
     if (dateFilter !== 'all') {
@@ -261,7 +294,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       });
     }
     return sessions;
-  }, [sessionsByStore, dateFilter, financeStoreFilter]);
+  }, [sessionsByStore, dateFilter, financeStoreFilters]);
 
   const stats = useMemo(() => {
     const revenue = allSessions.reduce((sum, s) => sum + (Number(s.totalReported) || 0), 0);
@@ -412,6 +445,20 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
     }
   };
 
+  const updateOrderStatus = async (storeId: string, orderId: string, status: 'pending' | 'processing' | 'fulfilled' | 'cancelled') => {
+    try {
+      await updateOrderStatusHook(storeId, orderId, { 
+        status, 
+        updatedAt: new Date().toISOString(),
+        updatedBy: auth.currentUser?.uid || ''
+      });
+      showNotification('Status do pedido atualizado!');
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      showNotification('Erro ao atualizar status do pedido.');
+    }
+  };
+
   const changeUserRole = async (userId: string, newRole: 'admin' | 'store') => {
     try {
       await updateUserRoleHook(userId, newRole);
@@ -496,6 +543,13 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
             <CheckCircle size={20} />
             Checklists
           </button>
+          <button 
+            onClick={() => setActiveTab('orders')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 px-2 rounded-xl font-bold transition-all ${activeTab === 'orders' ? 'bg-primary text-on-primary shadow-lg' : 'text-on-surface-variant hover:bg-surface-container'}`}
+          >
+            <ClipboardCheck size={20} />
+            Pedidos CD
+          </button>
         </div>
 
         {activeTab === 'stores' ? (
@@ -538,7 +592,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         <Store size={24} />
                       </div>
                       <div>
-                        <p className="font-headline font-bold text-on-surface text-lg">{store.name}</p>
+                        <p className="font-headline font-bold text-on-surface text-lg group-hover:text-primary transition-colors">{store.name}</p>
                         <p className="text-[10px] font-bold font-label text-on-surface-variant uppercase tracking-widest">ID: {store.id.slice(0, 8)}...</p>
                       </div>
                     </div>
@@ -757,53 +811,78 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
           </section>
         ) : activeTab === 'finance' ? (
           <section className="flex flex-col gap-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
-              <div>
-                <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2">
-                  <BarChart3 size={28} className="text-primary" />
-                  Visão Geral Financeira
-                </h2>
-                <p className="text-on-surface-variant text-sm mt-1">Acompanhamento de todas as unidades</p>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-3">
-                <select
-                  value={financeStoreFilter}
-                  onChange={(e) => setFinanceStoreFilter(e.target.value)}
-                  className="bg-surface-container-low border border-outline-variant text-on-surface text-sm rounded-xl focus:ring-primary focus:border-primary block w-full p-2.5 font-bold"
-                >
-                  <option value="all">Todas as Lojas</option>
-                  {stores.map(store => (
-                    <option key={store.id} value={store.id}>{store.name}</option>
-                  ))}
-                </select>
+            <div className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2">
+                    <BarChart3 size={28} className="text-primary" />
+                    Visão Geral Financeira
+                  </h2>
+                  <p className="text-on-surface-variant text-sm mt-1">Acompanhamento e filtros de unidades</p>
+                </div>
 
-                <div className="flex bg-surface-container-low p-1 rounded-xl border border-outline-variant">
+                <div className="flex flex-wrap bg-surface-container-low p-1 rounded-xl border border-outline-variant w-full md:w-auto">
                   <button 
                     onClick={() => setDateFilter('today')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
                   >
                     Hoje
                   </button>
                   <button 
                     onClick={() => setDateFilter('week')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
                   >
                     Semana
                   </button>
                   <button 
                     onClick={() => setDateFilter('month')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
                   >
                     Mês
                   </button>
                   <button 
                     onClick={() => setDateFilter('all')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
                   >
                     Tudo
                   </button>
                 </div>
+              </div>
+
+              {/* Multi-Select Stores */}
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-outline-variant/50">
+                <button
+                  onClick={() => setFinanceStoreFilters([])}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors border ${
+                    financeStoreFilters.length === 0 
+                      ? 'bg-primary text-on-primary border-primary' 
+                      : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container border-outline-variant'
+                  }`}
+                >
+                  Todas as Lojas
+                </button>
+                {stores.map(store => {
+                  const isSelected = financeStoreFilters.includes(store.id);
+                  return (
+                    <button
+                      key={store.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setFinanceStoreFilters(prev => prev.filter(id => id !== store.id));
+                        } else {
+                          setFinanceStoreFilters(prev => [...prev, store.id]);
+                        }
+                      }}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors border ${
+                        isSelected
+                          ? 'bg-primary text-on-primary border-primary shadow-sm'
+                          : 'bg-surface-container-lowest text-on-surface hover:bg-surface-container border-outline-variant shadow-sm'
+                      }`}
+                    >
+                      {store.name}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -835,7 +914,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Gráfico de Evolução Diária */}
-              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilter !== 'all' ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
+              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilters.length !== 1 ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
                 <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
                   <TrendingUp size={20} className="text-primary" />
                   Evolução do Faturamento e Lucro Diário
@@ -861,7 +940,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
 
               {/* Gráfico por Loja */}
-              {financeStoreFilter === 'all' && (
+              {financeStoreFilters.length !== 1 && (
                 <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
                   <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
                     <BarChart3 size={20} className="text-primary" />
@@ -1133,8 +1212,8 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               <div className="divide-y divide-outline-variant">
                 {(() => {
                   let closings = Object.values(closingsByStore).flat();
-                  if (financeStoreFilter !== 'all') {
-                    closings = closingsByStore[financeStoreFilter] || [];
+                  if (financeStoreFilters.length > 0) {
+                    closings = closings.filter(c => financeStoreFilters.includes(c.storeId));
                   }
                   const sortedClosings = closings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10);
                   
@@ -1199,8 +1278,8 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               <div className="divide-y divide-outline-variant">
                 {(() => {
                   let sessions = Object.values(sessionsByStore).flat();
-                  if (financeStoreFilter !== 'all') {
-                    sessions = sessionsByStore[financeStoreFilter] || [];
+                  if (financeStoreFilters.length > 0) {
+                    sessions = sessions.filter(s => financeStoreFilters.includes(s.storeId));
                   }
                   const sortedSessions = sessions.sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()).slice(0, 15);
 
@@ -1310,6 +1389,135 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                 })()}
               </div>
             </div>
+          </section>
+        ) : activeTab === 'orders' ? (
+          <section className="flex flex-col gap-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
+              <div>
+                <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2">
+                  <ClipboardCheck size={28} className="text-primary" />
+                  Centro de Distribuição (Pedidos)
+                </h2>
+                <p className="text-on-surface-variant text-sm mt-1">Gerencie os pedidos de reposição das lojas</p>
+              </div>
+              <div className="flex gap-3">
+                 <button
+                   onClick={() => setShowConsolidatedOrders(!showConsolidatedOrders)}
+                   className={`px-4 py-2 text-sm font-bold rounded-xl transition-all ${showConsolidatedOrders ? 'bg-primary text-on-primary shadow-md' : 'bg-surface-container-low text-on-surface hover:bg-surface-container'}`}
+                 >
+                   Ver Lista de Compras
+                 </button>
+              </div>
+            </div>
+
+            {showConsolidatedOrders ? (
+              <div className="bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
+                <h3 className="text-xl font-headline font-bold mb-4">Lista de Compras Consolidada</h3>
+                <p className="text-sm text-on-surface-variant mb-6">Soma de todos os items com status &quot;Pendente&quot; de todas as lojas, para comprar no fornecedor.</p>
+                {consolidatedItems.length === 0 ? (
+                   <p className="text-center py-8 text-on-surface-variant">Não há itens pendentes de compra.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {consolidatedItems.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-surface-container-low p-4 rounded-xl border border-outline-variant">
+                         <span className="font-bold text-on-surface">{item.name}</span>
+                         <span className="text-lg font-headline font-bold text-primary bg-primary/10 px-3 py-1 rounded-lg">{item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <select
+                    value={ordersStoreFilter}
+                    onChange={(e) => setOrdersStoreFilter(e.target.value)}
+                    className="flex-1 bg-surface-container-low border border-outline-variant text-on-surface text-sm rounded-xl focus:ring-primary focus:border-primary p-3 font-bold"
+                  >
+                    <option value="all">Todas as Lojas</option>
+                    {stores.map(store => (
+                      <option key={store.id} value={store.id}>{store.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={ordersStatusFilter}
+                    onChange={(e) => setOrdersStatusFilter(e.target.value as any)}
+                    className="flex-1 bg-surface-container-low border border-outline-variant text-on-surface text-sm rounded-xl focus:ring-primary focus:border-primary p-3 font-bold"
+                  >
+                    <option value="all">Todos os Status</option>
+                    <option value="pending">Pendentes</option>
+                    <option value="processing">Em Separação</option>
+                    <option value="fulfilled">Atendidos</option>
+                    <option value="cancelled">Cancelados</option>
+                  </select>
+                </div>
+
+                <div className="space-y-4">
+                  {allOrders.length === 0 ? (
+                    <div className="bg-surface-container-lowest p-8 rounded-[2rem] border border-outline-variant text-center">
+                      <p className="text-on-surface-variant font-medium">Nenhum pedido encontrado com estes filtros.</p>
+                    </div>
+                  ) : (
+                    allOrders.map(order => (
+                      <div key={order.id} className="bg-surface-container-lowest p-6 rounded-[2rem] border border-outline-variant shadow-sm flex flex-col gap-4">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-outline-variant pb-4">
+                           <div>
+                             <h4 className="font-bold text-lg">{order.storeName}</h4>
+                             <p className="text-xs text-on-surface-variant">
+                               Pedido feito em: {new Date(order.createdAt).toLocaleString('pt-BR')}
+                             </p>
+                           </div>
+                           <div className="flex gap-2 bg-surface-container-low p-1 rounded-xl">
+                             <button
+                               onClick={() => updateOrderStatus(order.storeId, order.id, 'pending')}
+                               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${order.status === 'pending' ? 'bg-orange-100 text-orange-700 shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                             >
+                               Pendente
+                             </button>
+                             <button
+                               onClick={() => updateOrderStatus(order.storeId, order.id, 'processing')}
+                               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${order.status === 'processing' ? 'bg-blue-100 text-blue-700 shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                             >
+                               Em Separação
+                             </button>
+                             <button
+                               onClick={() => updateOrderStatus(order.storeId, order.id, 'fulfilled')}
+                               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${order.status === 'fulfilled' ? 'bg-green-100 text-green-700 shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                             >
+                               Atendido
+                             </button>
+                             <button
+                               onClick={() => updateOrderStatus(order.storeId, order.id, 'cancelled')}
+                               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${order.status === 'cancelled' ? 'bg-red-100 text-red-700 shadow-sm' : 'text-on-surface-variant hover:bg-surface-container'}`}
+                             >
+                               Cancelado
+                             </button>
+                           </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                           {order.items.map((item: any, idx: number) => (
+                             <div key={idx} className="flex justify-between items-center p-3 bg-surface-container-low rounded-xl border border-outline-variant">
+                               <div>
+                                 <p className="font-bold text-sm text-on-surface">{item.itemName}</p>
+                                 {item.notes && <p className="text-xs text-on-surface-variant">{item.notes}</p>}
+                               </div>
+                               <span className="font-headline font-bold text-primary bg-primary/10 px-2 py-1 rounded-lg text-sm">{item.quantity}</span>
+                             </div>
+                           ))}
+                        </div>
+                        {order.notes && (
+                          <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-200">
+                             <p className="text-xs font-bold text-yellow-800 uppercase tracking-widest mb-1">Observações do Pedido</p>
+                             <p className="text-sm text-yellow-900">{order.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </section>
         ) : null}
       </main>

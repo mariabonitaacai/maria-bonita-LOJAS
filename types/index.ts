@@ -114,6 +114,26 @@ export interface Transfer {
   transferredBy: string;
 }
 
+export interface OrderItem {
+  itemId: string;
+  itemName: string;
+  quantity: number;
+  notes?: string;
+}
+
+export interface Order {
+  id: string;
+  storeId: string;
+  storeName: string;
+  items: OrderItem[];
+  status: 'pending' | 'processing' | 'fulfilled' | 'cancelled';
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface DailyChecklist {
   id: string;
   storeId: string;
