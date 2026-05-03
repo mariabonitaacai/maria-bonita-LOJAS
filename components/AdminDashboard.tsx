@@ -6,7 +6,7 @@ import { useAdmin } from '../hooks/useAdmin';
 import { getChecklistsByStore } from '../services/checklistService';
 import { DailyChecklist } from '../types';
 import { CHECKLIST_TEMPLATE } from '../utils/checklistTemplate';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import Image from 'next/image';
 import ChatMaria from './ChatMaria';
 
@@ -350,7 +350,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
         return new Date(`${yearA}-${monthA}-${dayA}`).getTime() - new Date(`${yearB}-${monthB}-${dayB}`).getTime();
       });
 
-    return { revenue, expenses, profit: revenue - expenses, byMethod, byStore, expensesByCategory, dailyMetrics };
+    return { revenue, expenses, profit: revenue - expenses, totalSessions: allSessions.length, byMethod, byStore, expensesByCategory, dailyMetrics };
   }, [allExpenses, allSessions, stores]);
 
   const handleAddStore = async (e: React.FormEvent) => {
@@ -512,7 +512,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 flex flex-col gap-8">
+      <main className={`mx-auto px-4 flex flex-col gap-8 w-full ${activeTab === 'finance' ? 'max-w-[1400px]' : 'max-w-4xl'}`}>
         {/* Tabs */}
         <div className="flex bg-surface-container-low p-1.5 rounded-2xl shadow-sm border border-outline-variant flex-wrap lg:flex-nowrap">
           <button 
@@ -814,38 +814,45 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
             <div className="flex flex-col gap-4 bg-surface-container-lowest p-6 rounded-[2rem] shadow-sm border border-outline-variant">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2">
-                    <BarChart3 size={28} className="text-primary" />
-                    Visão Geral Financeira
+                  <h2 className="text-2xl font-headline font-bold text-on-surface flex items-center gap-2 uppercase tracking-wide">
+                    DASHBOARD DE DESEMPENHO MASTER
                   </h2>
-                  <p className="text-on-surface-variant text-sm mt-1">Acompanhamento e filtros de unidades</p>
+                  <p className="text-on-surface-variant text-sm mt-1">Açaí & Sorveteria - Painel Financeiro Consolidado</p>
                 </div>
 
-                <div className="flex flex-wrap bg-surface-container-low p-1 rounded-xl border border-outline-variant w-full md:w-auto">
-                  <button 
-                    onClick={() => setDateFilter('today')}
-                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                  >
-                    Hoje
-                  </button>
-                  <button 
-                    onClick={() => setDateFilter('week')}
-                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                  >
-                    Semana
-                  </button>
-                  <button 
-                    onClick={() => setDateFilter('month')}
-                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                  >
-                    Mês
-                  </button>
-                  <button 
-                    onClick={() => setDateFilter('all')}
-                    className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
-                  >
-                    Tudo
-                  </button>
+                <div className="flex flex-col sm:flex-row gap-4 items-end sm:items-center">
+                  <div className="flex items-center gap-2 bg-surface-container-low p-1.5 rounded-xl border border-outline-variant">
+                    <button 
+                      onClick={() => setDateFilter('today')}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'today' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    >
+                      Hoje
+                    </button>
+                    <button 
+                      onClick={() => setDateFilter('week')}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'week' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    >
+                      Semana
+                    </button>
+                    <button 
+                      onClick={() => setDateFilter('month')}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'month' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    >
+                      Mês
+                    </button>
+                    <button 
+                      onClick={() => setDateFilter('all')}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'all' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    >
+                      Tudo
+                    </button>
+                  </div>
+                  <div className="bg-surface-container-low p-1.5 rounded-xl border border-outline-variant flex items-center h-[52px]">
+                    <span className="px-3 text-sm font-bold text-on-surface-variant border-r border-outline-variant">Moeda</span>
+                    <select className="bg-transparent font-bold text-sm text-on-surface pl-3 pr-8 focus:outline-none cursor-pointer">
+                      <option>BRL (R$)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -886,92 +893,124 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-surface-container-lowest p-8 rounded-3xl shadow-sm border border-outline-variant flex flex-col justify-between">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-primary-container text-primary rounded-2xl"><TrendingUp size={24} /></div>
-                  <p className="text-sm font-bold font-label text-on-surface-variant uppercase tracking-widest">Receita Total</p>
+            {/* KPI Row */}
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-primary-container text-primary rounded-xl"><TrendingUp size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Receita Total</p>
                 </div>
-                <p className="text-4xl font-headline font-bold text-on-surface">{formatCurrency(stats.revenue)}</p>
+                <p className="text-2xl font-headline font-extrabold text-on-surface">{formatCurrency(stats.revenue)}</p>
               </div>
-              <div className="bg-surface-container-lowest p-8 rounded-3xl shadow-sm border border-outline-variant flex flex-col justify-between">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-error-container text-error rounded-2xl"><TrendingDown size={24} /></div>
-                  <p className="text-sm font-bold font-label text-on-surface-variant uppercase tracking-widest">Despesas Pagas</p>
+
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-secondary-container text-on-secondary-container rounded-xl"><Wallet size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Lucro Líquido</p>
                 </div>
-                <p className="text-4xl font-headline font-bold text-on-surface">{formatCurrency(stats.expenses)}</p>
-              </div>
-              <div className="bg-surface-container-lowest p-8 rounded-3xl shadow-sm border border-outline-variant flex flex-col justify-between">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-secondary-container text-on-secondary-container rounded-2xl"><Wallet size={24} /></div>
-                  <p className="text-sm font-bold font-label text-on-surface-variant uppercase tracking-widest">Lucro Líquido</p>
-                </div>
-                <p className={`text-4xl font-headline font-bold ${stats.profit >= 0 ? 'text-primary' : 'text-error'}`}>
+                <p className={`text-2xl font-headline font-extrabold ${stats.profit >= 0 ? 'text-primary' : 'text-error'}`}>
                   {formatCurrency(stats.profit)}
                 </p>
               </div>
+
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-tertiary-container text-on-tertiary-container rounded-xl"><BarChart3 size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Margem Líquida</p>
+                </div>
+                <p className="text-2xl font-headline font-extrabold text-on-surface">
+                  {stats.revenue > 0 ? ((stats.profit / stats.revenue) * 100).toFixed(1) + '%' : '0.0%'}
+                </p>
+              </div>
+
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-error-container text-error rounded-xl"><TrendingDown size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Despesas Pagas</p>
+                </div>
+                <p className="text-2xl font-headline font-extrabold text-on-surface">{formatCurrency(stats.expenses)}</p>
+              </div>
+
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-surface-container-highest text-on-surface rounded-xl"><Store size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Lojas Ativas</p>
+                </div>
+                <p className="text-2xl font-headline font-extrabold text-on-surface">
+                  {financeStoreFilters.length > 0 ? financeStoreFilters.length : stores.length}
+                </p>
+              </div>
+
+              <div className="bg-surface-container-lowest p-6 rounded-[1.5rem] shadow-sm border border-outline-variant flex flex-col justify-between">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-2 bg-primary-container text-primary rounded-xl"><ClipboardCheck size={16} /></div>
+                  <p className="text-sm font-bold text-on-surface-variant leading-tight">Sessões Caixas</p>
+                </div>
+                <p className="text-2xl font-headline font-extrabold text-on-surface">{stats.totalSessions}</p>
+              </div>
             </div>
 
+            {/* Middle Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Gráfico de Evolução Diária */}
-              <div className={`bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant ${financeStoreFilters.length !== 1 ? 'lg:col-span-2' : 'lg:col-span-2'}`}>
-                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                  <TrendingUp size={20} className="text-primary" />
-                  Evolução do Faturamento e Lucro Diário
+              {/* Desempenho por Loja */}
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant flex flex-col">
+                <h3 className="font-headline font-bold text-on-surface uppercase tracking-wide mb-6 flex items-center gap-2">
+                  Receita e Lucro por Loja
                 </h3>
-                <div className="h-[300px]">
+                <div className="h-[350px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={stats.dailyMetrics}>
+                    <BarChart data={stats.byStore}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(val) => `R$${(val/1000).toFixed(0)}k`} />
                       <RechartsTooltip 
                         formatter={(value: any) => formatCurrency(Number(value))}
-                        labelStyle={{ color: '#1e293b', fontWeight: 'bold' }}
-                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        cursor={{fill: 'transparent'}}
                       />
-                      <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                      <Line type="monotone" dataKey="revenue" name="Receita" stroke="#4a148c" strokeWidth={4} dot={{ r: 4, fill: '#4a148c', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
-                      <Line type="monotone" dataKey="expense" name="Despesa" stroke="#ef4444" strokeWidth={3} dot={{ r: 3, fill: '#ef4444', strokeWidth: 1, stroke: '#fff' }} activeDot={{ r: 5 }} />
-                      <Line type="monotone" dataKey="profit" name="Lucro" stroke="#10b981" strokeWidth={4} dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
-                    </LineChart>
+                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                      <Bar dataKey="receita" name="Receita" fill="#4a148c" radius={[4, 4, 0, 0]} barSize={24} />
+                      <Bar dataKey="lucro" name="Lucro" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              {/* Gráfico por Loja */}
-              {financeStoreFilters.length !== 1 && (
-                <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
-                  <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                    <BarChart3 size={20} className="text-primary" />
-                    Desempenho por Loja
-                  </h3>
-                  <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={stats.byStore}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                        <RechartsTooltip 
-                          formatter={(value: any) => formatCurrency(Number(value))}
-                          contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
-                        />
-                        <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                        <Bar dataKey="receita" name="Receita" fill="#4a148c" radius={[8, 8, 0, 0]} />
-                        <Bar dataKey="lucro" name="Lucro" fill="#10b981" radius={[8, 8, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+              {/* Análise de Despesas Operacionais */}
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant flex flex-col">
+                <h3 className="font-headline font-bold text-on-surface uppercase tracking-wide mb-6 flex items-center gap-2">
+                  Análise de Despesas
+                </h3>
+                <div className="h-[350px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart 
+                      data={Object.entries(stats.expensesByCategory).map(([name, value]) => ({ name, value: Number(value) })).filter(d => d.value > 0).sort((a,b) => b.value - a.value)}
+                      layout="vertical"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                      <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(val) => `R$${(val/1000).toFixed(0)}k`} />
+                      <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#1e293b', fontWeight: 500 }} />
+                      <RechartsTooltip 
+                        formatter={(value: any) => formatCurrency(Number(value))}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        cursor={{fill: '#f1f5f9'}}
+                      />
+                      <Bar dataKey="value" name="Valor" fill="#f59e0b" radius={[0, 8, 8, 0]} barSize={16} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {/* Gráfico de Métodos de Pagamento */}
-              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
-                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                  <PieChartIcon size={20} className="text-primary" />
+            {/* Bottom Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Desempenho Regional (Pie Chart of Stores / Methods) */}
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant flex flex-col">
+                 <h3 className="font-headline font-bold text-on-surface uppercase tracking-wide mb-6 flex items-center gap-2">
                   Composição de Receita
                 </h3>
-                <div className="h-[300px]">
+                <div className="h-[250px] w-full flex items-center justify-center relative">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -983,8 +1022,8 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                         ].filter(d => d.value > 0)}
                         cx="50%"
                         cy="50%"
-                        innerRadius={80}
-                        outerRadius={110}
+                        innerRadius={60}
+                        outerRadius={90}
                         paddingAngle={5}
                         dataKey="value"
                       >
@@ -999,43 +1038,49 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                       </Pie>
                       <RechartsTooltip 
                         formatter={(value: any) => formatCurrency(Number(value))}
-                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       />
-                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                      <Legend />
                     </PieChart>
                   </ResponsiveContainer>
+                  {/* Center Text */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-[-20px]">
+                    <span className="text-2xl font-black text-on-surface">{[stats.byMethod.pix, stats.byMethod.cash, stats.byMethod.credit, stats.byMethod.debit].filter(v => v>0).length}</span>
+                    <span className="text-xs font-bold text-on-surface-variant uppercase">Fontes</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Gráfico de Despesas por Categoria */}
-              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant">
-                <h3 className="font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
-                  <PieChartIcon size={20} className="text-error" />
-                  Despesas por Categoria
+              {/* Evolução Faturamento */}
+              <div className="bg-surface-container-lowest p-8 rounded-[2rem] shadow-sm border border-outline-variant lg:col-span-2 flex flex-col">
+                 <h3 className="font-headline font-bold text-on-surface uppercase tracking-wide mb-6 flex items-center gap-2">
+                  Fluxo Mensal Diário
                 </h3>
-                <div className="h-[300px]">
+                <div className="h-[250px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={Object.entries(stats.expensesByCategory).map(([name, value]) => ({ name, value: Number(value) })).filter(d => d.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={80}
-                        outerRadius={110}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {Object.entries(stats.expensesByCategory).filter(([_, value]) => Number(value) > 0).map((entry, index) => {
-                          const colors = ['#ff4081', '#4a148c', '#06b6d4', '#f59e0b', '#10b981', '#6366f1'];
-                          return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                        })}
-                      </Pie>
+                    <AreaChart data={stats.dailyMetrics}>
+                      <defs>
+                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4a148c" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#4a148c" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(val) => `R$${(val/1000).toFixed(0)}k`} />
                       <RechartsTooltip 
                         formatter={(value: any) => formatCurrency(Number(value))}
-                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)' }}
+                        labelStyle={{ color: '#1e293b', fontWeight: 'bold' }}
+                        contentStyle={{ borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       />
-                      <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                    </PieChart>
+                      <Legend />
+                      <Area type="monotone" dataKey="revenue" name="Receita" stroke="#4a148c" fillOpacity={1} fill="url(#colorRevenue)" />
+                      <Area type="monotone" dataKey="profit" name="Lucro" stroke="#10b981" fillOpacity={1} fill="url(#colorProfit)" />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>

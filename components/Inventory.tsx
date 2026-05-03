@@ -1246,33 +1246,7 @@ export default function Inventory({ storeId, storeName, onBack }: { storeId: str
                 </button>
               </form>
 
-              {/* Histórico Recente de Despesas */}
-              {recentExpenses.length > 0 && (
-                <div className="mt-8 pt-6 border-t border-outline-variant/30">
-                  <h4 className="text-sm font-bold text-on-surface-variant mb-4 uppercase tracking-wider">Lançamentos Recentes</h4>
-                  <div className="space-y-3">
-                    {recentExpenses.map(exp => (
-                      <div key={exp.id} className="flex justify-between items-center p-4 bg-surface-container-low rounded-2xl border border-outline-variant/20">
-                        <div>
-                          <p className="font-headline font-bold text-sm text-on-surface">{exp.description}</p>
-                          <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-1">Venc: {new Date(exp.dueDate).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</p>
-                        </div>
-                        <div className="text-right flex flex-col items-end gap-2">
-                          <p className="font-headline font-bold text-error">{formatCurrency(exp.amount)}</p>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${exp.status === 'pending' ? 'bg-amber-100 text-amber-800' : exp.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                              {exp.status === 'pending' ? 'Pendente' : exp.status === 'paid' ? 'Pago' : 'Cancelado'}
-                            </span>
-                            <button onClick={() => deleteExpenseHook(exp.id)} className="text-on-surface-variant hover:text-error transition-colors" title="Remover Despesa">
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+
             </div>
 
             {/* Controle de Fluxo de Caixa (Abertura/Fechamento) */}
