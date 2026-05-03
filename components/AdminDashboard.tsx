@@ -33,7 +33,9 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
   } = useAdmin();
   const [newStoreName, setNewStoreName] = useState('');
   const [activeTab, setActiveTab] = useState<'stores' | 'users' | 'finance' | 'checklists' | 'orders'>('stores');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [financeStoreFilters, setFinanceStoreFilters] = useState<string[]>([]);
   const [checklistStoreFilter, setChecklistStoreFilter] = useState<string>('all');
   const [checklistDateFilter, setChecklistDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
@@ -261,6 +263,12 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
         if (dateFilter === 'month') {
           return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
         }
+        if (dateFilter === 'custom' && customStartDate && customEndDate) {
+          const start = new Date(customStartDate);
+          const end = new Date(customEndDate);
+          end.setHours(23, 59, 59, 999);
+          return date >= start && date <= end;
+        }
         return true;
       });
     }
@@ -269,7 +277,7 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
       const store = stores.find(s => s.id === e.storeId);
       return { ...e, storeName: store ? store.name : 'Desconhecida' };
     });
-  }, [expensesByStore, dateFilter, financeStoreFilters, stores]);
+  }, [expensesByStore, dateFilter, customStartDate, customEndDate, financeStoreFilters, stores]);
 
   const allSessions = useMemo(() => {
     let sessions = Object.values(sessionsByStore).flat();
@@ -290,11 +298,17 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
         if (dateFilter === 'month') {
           return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
         }
+        if (dateFilter === 'custom' && customStartDate && customEndDate) {
+          const start = new Date(customStartDate);
+          const end = new Date(customEndDate);
+          end.setHours(23, 59, 59, 999);
+          return date >= start && date <= end;
+        }
         return true;
       });
     }
     return sessions;
-  }, [sessionsByStore, dateFilter, financeStoreFilters]);
+  }, [sessionsByStore, dateFilter, customStartDate, customEndDate, financeStoreFilters]);
 
   const stats = useMemo(() => {
     const revenue = allSessions.reduce((sum, s) => sum + (Number(s.totalReported) || 0), 0);
@@ -846,7 +860,30 @@ export default function AdminDashboard({ onSelectStore }: { onSelectStore: (stor
                     >
                       Tudo
                     </button>
+                    <button 
+                      onClick={() => setDateFilter('custom')}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateFilter === 'custom' ? 'bg-primary text-on-primary shadow-md' : 'text-on-surface-variant hover:bg-surface-container-highest'}`}
+                    >
+                      Personalizado
+                    </button>
                   </div>
+                  {dateFilter === 'custom' && (
+                    <div className="flex items-center gap-2 bg-surface-container-low p-1.5 rounded-xl border border-outline-variant h-[52px]">
+                      <input 
+                        type="date" 
+                        value={customStartDate} 
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-on-surface px-2 focus:outline-none"
+                      />
+                      <span className="text-on-surface-variant">Até</span>
+                      <input 
+                        type="date" 
+                        value={customEndDate} 
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="bg-transparent text-sm font-bold text-on-surface px-2 focus:outline-none"
+                      />
+                    </div>
+                  )}
                   <div className="bg-surface-container-low p-1.5 rounded-xl border border-outline-variant flex items-center h-[52px]">
                     <span className="px-3 text-sm font-bold text-on-surface-variant border-r border-outline-variant">Moeda</span>
                     <select className="bg-transparent font-bold text-sm text-on-surface pl-3 pr-8 focus:outline-none cursor-pointer">
